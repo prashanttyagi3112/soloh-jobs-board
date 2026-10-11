@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#070b16" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'"
+    />
+    <title>Soloh Jobs Board</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="nebula nebula-a" aria-hidden="true"></div>
+    <div class="nebula nebula-b" aria-hidden="true"></div>
+    <div class="nebula nebula-c" aria-hidden="true"></div>
+    <canvas id="starfield" aria-hidden="true"></canvas>
+
+    <div id="lock" class="lock">
+      <form id="lock-form" class="lock-card" method="post" action="#">
+        <div class="orbit" aria-hidden="true">
+          <span class="ring"></span>
+          <span class="planet"></span>
+          <span class="moon"></span>
+        </div>
+        <p class="eyebrow">SoloH Partners</p>
+        <h1>Soloh Jobs Board</h1>
+        <p class="lede">
+          Internal recruiting board. The job file stays encrypted until this browser derives the key.
+        </p>
+        <p class="date-lock">Data date <time id="lock-date">loading…</time></p>
+        <label class="field" for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" spellcheck="false" required />
+        <button id="launch" class="btn launch" type="submit" disabled>Launch</button>
+        <p id="lock-status" class="lock-status" role="status">Loading the vault…</p>
+      </form>
+    </div>
+
+    <main id="board" class="board" hidden>
+      <header class="top">
+        <div class="brand">
+          <div class="orbit orbit-sm" aria-hidden="true">
+            <span class="ring"></span>
+            <span class="planet"></span>
+          </div>
+          <div>
+            <p class="eyebrow">SoloH Partners</p>
+            <h1 id="board-title" tabindex="-1">Soloh Jobs Board</h1>
+          </div>
+        </div>
+        <div class="top-meta">
+          <p class="date">Data date <time id="data-date"></time></p>
+          <p id="drop-totals" class="drop-totals"></p>
+          <button id="lock-btn" class="btn ghost" type="button">Lock</button>
+        </div>
+      </header>
+
+      <section class="stats" aria-label="Matching jobs">
+        <article class="stat">
+          <p class="stat-label">Jobs in view</p>
+          <p id="job-count" class="stat-value">0</p>
+        </article>
+        <article class="stat">
+          <p class="stat-label">Openings in view</p>
+          <p id="opening-count" class="stat-value">0</p>
+        </article>
+        <article class="stat">
+          <p class="stat-label">Status filter</p>
+          <p id="view-label" class="stat-value stat-text">Open</p>
+        </article>
+      </section>
+
+      <div class="source-row">
+        <p class="source-label">Sources in this view</p>
+        <ul id="source-counts" class="sources"></ul>
+      </div>
+
+      <section class="controls">
+        <div id="facets" class="facets"></div>
+        <div class="search-row">
+          <label class="search">
+            <span class="visually-hidden">Search jobs</span>
+            <input id="search" type="search" placeholder="Search facility, title, city, job id…" autocomplete="off" />
+          </label>
+        </div>
+        <div id="chips" class="chips"></div>
+        <div class="actions">
+          <label class="toggle">
+            <input id="show-all" type="checkbox" />
+            <span>Show all statuses</span>
+          </label>
+          <button id="export-xlsx" class="btn primary" type="button">Export Excel</button>
+          <button id="export-pdf" class="btn primary" type="button">Export PDF</button>
+          <button id="export-report" class="btn ghost" type="button">Chief of Jobs report</button>
+          <button id="reset" class="btn ghost" type="button">Reset filters</button>
+          <button id="mapping" class="btn ghost" type="button">Discipline mapping</button>
+        </div>
+        <p id="result-line" class="result-line" aria-live="polite"></p>
+        <p id="notice" class="notice" role="status"></p>
+      </section>
+
+      <div class="sort-mobile">
+        <label>
+          Sort
+          <select id="sort-key"></select>
+        </label>
+        <button id="sort-dir" class="btn ghost" type="button">Ascending</button>
+        <button id="expand-all" class="btn ghost" type="button">Expand cards</button>
+      </div>
+      <p class="scroll-hint">Every column is in the table. Scroll sideways to see rates, margins, and ids.</p>
+
+      <div id="results" class="results">
+        <div id="table-wrap" class="table-scroll">
+          <table>
+            <thead id="thead"></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div id="cards" class="cards"></div>
+        <p id="empty" class="empty" hidden>No jobs match these filters.</p>
+      </div>
+    </main>
+
+    <dialog id="mapping-dialog">
+      <h2>How discipline and specialty are assigned</h2>
+      <p>
+        The workbook has no Discipline column. The build reads Standard Title and Profession - Specialty and keeps the first group that matches.
+      </p>
+      <ol>
+        <li><strong>LPN/LVN</strong> — LPN, LVN, licensed practical nurse, or licensed vocational nurse.</li>
+        <li><strong>CNA</strong> — CNA, STNA, GNA, PCT, certified nursing assistant, nursing assistant, nurse aide, or patient care tech.</li>
+        <li><strong>RN</strong> — the standard title starts with RN, the text says RN or Registered Nurse, or the profession starts with Nursing.</li>
+        <li><strong>Allied</strong> — lab, imaging and radiology, therapy (PT, OT, SLP, respiratory), and surgical tech, plus pharmacy, dietetics, dental hygiene, sleep, EEG, medical physics, social work, and tumor registry. A profession marked Allied stays here.</li>
+        <li><strong>Other</strong> — no match. Non-clinical titles land here.</li>
+      </ol>
+      <p>The Specialty filter is the Standard Title, the normalized specialty from Chief of Jobs. A blank title falls back to the text after the last “|” or “ - ” in Profession - Specialty.</p>
+      <p id="disc-counts"></p>
+      <form method="dialog">
+        <button class="btn primary" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <noscript>
+      <p class="noscript">Soloh Jobs Board needs JavaScript to decrypt and show jobs in this browser.</p>
+    </noscript>
+
+    <script src="vendor/xlsx.full.min.js"></script>
+    <script src="vendor/jspdf.umd.min.js"></script>
+    <script src="vendor/jspdf.plugin.autotable.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
