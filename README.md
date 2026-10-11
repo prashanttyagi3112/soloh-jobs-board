@@ -47,7 +47,7 @@ Do not commit `.xlsx` or `.pdf` files, an `.env` file, or a decrypted JSON extra
 
 Every workbook column is included, plus the derived Discipline column. Default view is **Status = Open**. **Show all statuses** includes hold and closed rows. The header shows the data date and the per-source counts for the whole drop (HWL, BudE, Magnit, plus any future source). The stat tiles and the source chips follow the current filters.
 
-Filters are Specialty, Discipline, City, and State. Each is a searchable multi-select. Options narrow to values that still exist given the other selections: Discipline narrows Specialty, State narrows City, and a choice that no longer matches is cleared. There is also a free-text search across every column. Column headers sort; empty values stay at the bottom. Jobs in view and openings count up when the filter changes.
+Filters are Specialty, Discipline, City, State, and VMS. VMS is the Source column (HWL, BudE, Magnit, and any later source). Each is a searchable multi-select. Options narrow to values that still exist given the other selections: Discipline narrows Specialty, State narrows City, VMS narrows the locations and specialties that source actually has, and a choice that no longer matches is cleared. There is also a free-text search across every column. Column headers sort; empty values stay at the bottom. Jobs in view and openings count up when the filter changes.
 
 **Export Excel** and **Export PDF** download the rows in the current view, with every column. The PDF is landscape. **Chief of Jobs report** downloads the original report after decrypting it in the browser. None of these calls a server.
 

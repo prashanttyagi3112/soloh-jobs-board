@@ -1,10 +1,12 @@
 "use strict";
 
+const SOURCE_ORDER = ["HWL", "BudE", "Magnit"];
 const FACETS = [
   { id: "specialty", label: "Specialty", key: "Standard Title" },
   { id: "discipline", label: "Discipline", key: "Discipline", order: ["RN", "LPN/LVN", "CNA", "Allied", "Other"] },
   { id: "city", label: "City", key: "City" },
   { id: "state", label: "State", key: "State" },
+  { id: "vms", label: "VMS", key: "Source", order: SOURCE_ORDER },
 ];
 
 const MONEY = new Set(["BR", "W2 RT", "Weekly Per Diem", "Gross Weekly Pay", "Target Margin Used"]);
@@ -22,7 +24,6 @@ const NUMERIC = new Set([
   "NBO",
 ]);
 const WRAP = new Set(["Facility", "Profession - Specialty", "Job Key", "Job ID"]);
-const SOURCE_ORDER = ["HWL", "BudE", "Magnit"];
 const CARD_PRIMARY = [
   "Discipline",
   "Shift",
@@ -50,6 +51,7 @@ const state = {
     discipline: new Set(),
     city: new Set(),
     state: new Set(),
+    vms: new Set(),
   },
   query: "",
   showAll: false,
