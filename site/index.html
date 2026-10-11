@@ -32,6 +32,8 @@
           Internal recruiting board. The job file stays encrypted until this browser derives the key.
         </p>
         <p class="date-lock">Data date <time id="lock-date">loading…</time></p>
+        <p id="lock-updated" class="updated-badge">Jobs last updated: …</p>
+        <p class="refresh-note">Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET</p>
         <label class="field" for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" spellcheck="false" required />
         <button id="launch" class="btn launch" type="submit" disabled>Launch</button>
@@ -57,6 +59,30 @@
           <button id="lock-btn" class="btn ghost" type="button">Lock</button>
         </div>
       </header>
+
+      <div class="freshness">
+        <p id="updated-badge" class="updated-badge">Jobs last updated: …</p>
+        <p class="refresh-note">Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET</p>
+      </div>
+
+      <section id="margin-panel" class="margin-panel" aria-label="Target margin">
+        <div class="margin-field">
+          <label for="target-margin">Target margin</label>
+          <input id="target-margin" type="number" min="0" step="1" value="4000" inputmode="decimal" />
+        </div>
+        <div class="margin-presets" role="group" aria-label="Margin presets">
+          <button class="btn ghost margin-preset" type="button" data-margin="3000">$3,000</button>
+          <button class="btn ghost margin-preset" type="button" data-margin="3500">$3,500</button>
+          <button class="btn ghost margin-preset is-on" type="button" data-margin="4000">$4,000</button>
+        </div>
+        <div class="margin-field">
+          <label for="custom-margin">Custom margin for selected</label>
+          <input id="custom-margin" type="number" min="0" step="1" inputmode="decimal" />
+        </div>
+        <button id="apply-margin" class="btn ghost" type="button">Apply to selected</button>
+        <button id="clear-margin" class="btn ghost" type="button">Clear custom</button>
+        <p id="selected-count" class="selected-count">0 selected</p>
+      </section>
 
       <section class="stats" aria-label="Matching jobs">
         <article class="stat">
@@ -92,6 +118,10 @@
             <input id="show-all" type="checkbox" />
             <span>Show all statuses</span>
           </label>
+          <label class="toggle">
+            <input id="export-selected" type="checkbox" />
+            <span>Selected only</span>
+          </label>
           <button id="export-xlsx" class="btn primary" type="button">Export Excel</button>
           <button id="export-pdf" class="btn primary" type="button">Export PDF</button>
           <button id="export-report" class="btn ghost" type="button">Chief of Jobs report</button>
@@ -110,7 +140,7 @@
         <button id="sort-dir" class="btn ghost" type="button">Ascending</button>
         <button id="expand-all" class="btn ghost" type="button">Expand cards</button>
       </div>
-      <p class="scroll-hint">Every column is in the table. Scroll sideways to see rates, margins, and ids.</p>
+      <p class="scroll-hint">Click a row for every field. Use the checkbox to select jobs. Scroll sideways for rates, margins, and ids.</p>
 
       <div id="results" class="results">
         <div id="table-wrap" class="table-scroll">
@@ -123,6 +153,23 @@
         <p id="empty" class="empty" hidden>No jobs match these filters.</p>
       </div>
     </main>
+
+    <dialog id="job-dialog" class="job-dialog" aria-labelledby="job-dialog-title">
+      <div class="job-dialog-head">
+        <div>
+          <p class="eyebrow">Job detail</p>
+          <h2 id="job-dialog-title" tabindex="-1"></h2>
+          <p id="job-dialog-sub"></p>
+        </div>
+        <button id="job-dialog-close" class="btn ghost" type="button">Close</button>
+      </div>
+      <div id="job-dialog-body" class="job-groups"></div>
+      <div class="job-dialog-actions">
+        <p id="job-summary" class="job-summary"></p>
+        <button id="copy-summary" class="btn primary" type="button">Copy job summary</button>
+        <p id="copy-status" class="copy-status" role="status"></p>
+      </div>
+    </dialog>
 
     <dialog id="mapping-dialog">
       <h2>How discipline and specialty are assigned</h2>
@@ -150,6 +197,7 @@
     <script src="vendor/xlsx.full.min.js"></script>
     <script src="vendor/jspdf.umd.min.js"></script>
     <script src="vendor/jspdf.plugin.autotable.min.js"></script>
+    <script src="calc.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

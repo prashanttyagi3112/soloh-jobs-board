@@ -1,13 +1,15 @@
 "use strict";
 
+const SOURCE_ORDER = ["HWL", "BudE", "Magnit"];
 const FACETS = [
   { id: "specialty", label: "Specialty", key: "Standard Title" },
   { id: "discipline", label: "Discipline", key: "Discipline", order: ["RN", "LPN/LVN", "CNA", "Allied", "Other"] },
   { id: "city", label: "City", key: "City" },
   { id: "state", label: "State", key: "State" },
+  { id: "vms", label: "VMS", key: "Source", order: SOURCE_ORDER },
 ];
 
-const MONEY = new Set(["BR", "W2 RT", "Weekly Per Diem", "Gross Weekly Pay", "Target Margin Used"]);
+const MONEY = new Set(["BR", "W2 RT", "Weekly Per Diem", "Gross Weekly Pay", "Target Margin Used", "Margin Used"]);
 const PERCENT = new Set(["MSP %"]);
 const NUMERIC = new Set([
   "Hours/week",
@@ -18,11 +20,11 @@ const NUMERIC = new Set([
   "Weekly Per Diem",
   "Gross Weekly Pay",
   "Target Margin Used",
+  "Margin Used",
   "MSP %",
   "NBO",
 ]);
 const WRAP = new Set(["Facility", "Profession - Specialty", "Job Key", "Job ID"]);
-const SOURCE_ORDER = ["HWL", "BudE", "Magnit"];
 const CARD_PRIMARY = [
   "Discipline",
   "Shift",
@@ -34,6 +36,7 @@ const CARD_PRIMARY = [
   "W2 RT",
   "Source",
   "Target Margin Used",
+  "Margin Used",
 ];
 
 const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -50,12 +53,18 @@ const state = {
     discipline: new Set(),
     city: new Set(),
     state: new Set(),
+    vms: new Set(),
   },
   query: "",
   showAll: false,
   sortKey: "State",
   sortDir: "asc",
   ready: false,
+  updatedAt: "",
+  globalMargin: 4000,
+  rowMargins: new Map(),
+  selected: new Set(),
+  openJobId: null,
 };
 
 const expanded = new Set();
@@ -146,6 +155,312 @@ function formatCell(key, value) {
   return String(value);
 }
 
+function formatEastern(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return String(iso || "");
+  const parts = {};
+  for (const part of new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZoneName: "short",
+  }).formatToParts(date)) {
+    if (part.type !== "literal") parts[part.type] = part.value;
+  }
+  return `${parts.weekday}, ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${parts.dayPeriod} ${parts.timeZoneName}`;
+}
+
+function paintUpdated(iso) {
+  if (iso) state.updatedAt = iso;
+  const label = state.updatedAt ? `Jobs last updated: ${formatEastern(state.updatedAt)}` : "Jobs last updated: —";
+  const board = document.getElementById("updated-badge");
+  const lock = document.getElementById("lock-updated");
+  if (board) board.textContent = label;
+  if (lock) lock.textContent = label;
+}
+
+function assignIds(jobs) {
+  const seen = new Map();
+  for (let index = 0; index < jobs.length; index += 1) {
+    const row = jobs[index];
+    let id = row["Job Key"] != null && row["Job Key"] !== "" ? String(row["Job Key"]) : `row-${index}`;
+    const count = seen.get(id) || 0;
+    seen.set(id, count + 1);
+    if (count) id = `${id}#${count + 1}`;
+    row.__id = id;
+  }
+  return jobs;
+}
+
+function marginFor(row) {
+  if (state.rowMargins.has(row.__id)) return state.rowMargins.get(row.__id);
+  return state.globalMargin;
+}
+
+function payFor(row) {
+  const tnm = marginFor(row);
+  if (row.__pay && row.__pay.tnm === tnm) return row.__pay;
+  const result = SolohCalc.soloh(
+    row.BR,
+    row["Hours/week"],
+    row.Weeks,
+    row["Weekly Per Diem"],
+    row["MSP %"],
+    row.NBO,
+    tnm
+  );
+  row.__pay = { tnm, ...result };
+  return row.__pay;
+}
+
+function viewColumns() {
+  const cols = state.columns.filter((col) => col !== "Margin Used");
+  const at = cols.indexOf("Target Margin Used");
+  cols.splice(at === -1 ? cols.length : at + 1, 0, "Margin Used");
+  return cols;
+}
+
+function alreadyNotViable(value) {
+  return String(value || "").toLowerCase().includes("not viable");
+}
+
+function payPresentation(row, key) {
+  const pay = payFor(row);
+  const original = row[key];
+  const originalLabel = formatCell(key, original);
+  if (!pay.computable) return { text: originalLabel, title: "", delta: "", changed: false, viable: true };
+  if (!pay.viable) {
+    const already = alreadyNotViable(original) || original == null || original === "";
+    return {
+      text: SolohCalc.NOT_VIABLE,
+      title: `Original: ${originalLabel}`,
+      delta: already ? "" : `was ${originalLabel}`,
+      changed: !already,
+      viable: false,
+    };
+  }
+  const value = key === "W2 RT" ? pay.rt : pay.gross;
+  const text = formatCell(key, value);
+  const origNum = asNumber(original);
+  if (origNum != null && Math.abs(origNum - value) < 0.005) {
+    return { text, title: `Original: ${text}`, delta: "", changed: false, viable: true };
+  }
+  let delta = "";
+  if (origNum != null) {
+    const diff = Math.round((value - origNum) * 100) / 100;
+    delta = `${diff > 0 ? "+" : "−"}${moneyFmt.format(Math.abs(diff))}`;
+  } else if (original != null && original !== "") {
+    delta = `was ${originalLabel}`;
+  }
+  return {
+    text,
+    title: delta ? `Original: ${originalLabel} (${delta})` : `Original: ${originalLabel}`,
+    delta,
+    changed: Boolean(delta) || origNum == null,
+    viable: true,
+  };
+}
+
+function cellSortValue(row, key) {
+  if (key === "Margin Used") return marginFor(row);
+  if (key === "W2 RT" || key === "Gross Weekly Pay") {
+    const pay = payFor(row);
+    if (!pay.computable) return row[key];
+    if (!pay.viable) return null;
+    return key === "W2 RT" ? pay.rt : pay.gross;
+  }
+  return row[key];
+}
+
+function exportValue(row, col) {
+  if (col === "Margin Used") return marginFor(row);
+  if (col === "W2 RT" || col === "Gross Weekly Pay") {
+    const pay = payFor(row);
+    if (!pay.computable) return row[col] == null ? "" : row[col];
+    if (!pay.viable) return SolohCalc.NOT_VIABLE;
+    return col === "W2 RT" ? pay.rt : pay.gross;
+  }
+  return row[col] == null ? "" : row[col];
+}
+
+const DETAIL_GROUPS = [
+  { title: "Job info", keys: ["Standard Title", "Discipline", "Profession - Specialty", "Job ID", "Job Key", "Openings"] },
+  { title: "Location / Facility", keys: ["Facility", "City", "State"] },
+  { title: "Schedule", keys: ["Shift", "Hours/week", "Weeks"] },
+  { title: "Rates & Margin", keys: ["BR", "MSP %", "NBO", "Target Margin Used", "Per Diem Month"] },
+  { title: "Pay package", keys: ["Margin Used", "W2 RT", "Weekly Per Diem", "Gross Weekly Pay"] },
+  { title: "Tracking", keys: ["First Seen", "Last Seen", "Status", "Source"] },
+];
+
+function detailSections() {
+  const known = new Set(DETAIL_GROUPS.flatMap((group) => group.keys));
+  const present = new Set(state.columns);
+  const sections = DETAIL_GROUPS.map((group) => ({
+    title: group.title,
+    fields: group.keys.filter((key) => key === "Margin Used" || present.has(key)),
+  })).filter((section) => section.fields.length);
+  const extra = state.columns.filter((key) => !known.has(key));
+  if (extra.length) sections.push({ title: "Additional", fields: extra });
+  return sections;
+}
+
+function appendPayNodes(node, view) {
+  node.append(document.createTextNode(view.text));
+  if (view.delta) node.appendChild(el("span", "delta", view.delta));
+  if (view.title) node.title = view.title;
+  if (!view.viable) node.classList.add("not-viable");
+  else if (view.changed) node.classList.add("pay-changed");
+}
+
+function fillDataCell(td, row, col) {
+  if (WRAP.has(col)) td.classList.add("wrap");
+  if (NUMERIC.has(col)) td.classList.add("num");
+  if (col === "Status") {
+    td.appendChild(el("span", `badge ${statusClass(row[col])}`, formatCell(col, row[col])));
+    return;
+  }
+  if (col === "Discipline") {
+    td.appendChild(el("span", `badge disc disc-${slug(row[col])}`, formatCell(col, row[col])));
+    return;
+  }
+  if (col === "Margin Used") {
+    td.textContent = formatCell(col, marginFor(row));
+    if (state.rowMargins.has(row.__id)) {
+      td.classList.add("pay-changed");
+      td.title = "Custom margin for this job";
+    }
+    return;
+  }
+  if (col === "W2 RT" || col === "Gross Weekly Pay") {
+    appendPayNodes(td, payPresentation(row, col));
+    return;
+  }
+  if (col === "Standard Title") {
+    const btn = el("button", "row-open", formatCell(col, row[col]));
+    btn.type = "button";
+    btn.dataset.openJob = row.__id;
+    btn.setAttribute("aria-label", `Open details for ${formatCell(col, row[col])}`);
+    td.appendChild(btn);
+    return;
+  }
+  td.textContent = formatCell(col, row[col]);
+}
+
+function fieldValue(row, key) {
+  const dd = el("dd");
+  if (key === "Margin Used") {
+    dd.textContent = formatCell(key, marginFor(row));
+    if (state.rowMargins.has(row.__id)) {
+      dd.classList.add("pay-changed");
+      dd.title = "Custom margin for this job";
+    }
+    return dd;
+  }
+  if (key === "W2 RT" || key === "Gross Weekly Pay") {
+    appendPayNodes(dd, payPresentation(row, key));
+    return dd;
+  }
+  if (key === "Status") {
+    dd.appendChild(el("span", `badge ${statusClass(row[key])}`, formatCell(key, row[key])));
+    return dd;
+  }
+  if (key === "Discipline") {
+    dd.appendChild(el("span", `badge disc disc-${slug(row[key])}`, formatCell(key, row[key])));
+    return dd;
+  }
+  dd.textContent = formatCell(key, row[key]);
+  return dd;
+}
+
+function shiftPhrase(shift) {
+  const text = shift == null ? "" : String(shift).trim();
+  if (!text || text.toLowerCase() === "not listed") return "";
+  return /shift$/i.test(text) ? text : `${text} shift`;
+}
+
+function jobSummary(row) {
+  const title = row["Standard Title"] ? String(row["Standard Title"]) : "Job";
+  const city = row.City ? String(row.City) : "Unknown city";
+  const region = row.State ? String(row.State) : "";
+  const place = region ? `${city}, ${region}` : city;
+  const pay = payFor(row);
+  let gross = formatCell("Gross Weekly Pay", row["Gross Weekly Pay"]);
+  if (pay.computable) gross = pay.viable ? moneyFmt.format(pay.gross) : SolohCalc.NOT_VIABLE;
+  let line = `${title} @ ${place} - Gross Pay of ${gross}`;
+  const shift = shiftPhrase(row.Shift);
+  if (shift) line += ` for ${shift}`;
+  const hours = row["Hours/week"];
+  if (hours != null && hours !== "") {
+    const shown = typeof hours === "number" ? numFmt.format(hours) : String(hours);
+    line += ` (${shown} Hours/week)`;
+  }
+  return line;
+}
+
+function findJob(id) {
+  return state.jobs.find((row) => row.__id === id) || null;
+}
+
+function renderJobDialog(row) {
+  document.getElementById("job-dialog-title").textContent = formatCell("Standard Title", row["Standard Title"]);
+  const where = [row.Facility, [row.City, row.State].filter(Boolean).join(", ")].filter((part) => part != null && part !== "");
+  document.getElementById("job-dialog-sub").textContent = where.map((part) => String(part)).join(" · ");
+  document.getElementById("job-summary").textContent = jobSummary(row);
+  const body = document.getElementById("job-dialog-body");
+  body.replaceChildren();
+  for (const section of detailSections()) {
+    const card = el("section", "job-group");
+    card.appendChild(el("h3", null, section.title));
+    if (section.title === "Pay package") {
+      card.appendChild(el("p", "group-note", "W2 RT and gross weekly pay use this job's current margin."));
+    }
+    const list = document.createElement("dl");
+    for (const key of section.fields) {
+      const wrap = document.createElement("div");
+      wrap.append(el("dt", null, key === "BR" ? "BR (bill rate)" : key), fieldValue(row, key));
+      list.appendChild(wrap);
+    }
+    card.appendChild(list);
+    body.appendChild(card);
+  }
+}
+
+let detailReturnFocus = null;
+
+function openJob(id) {
+  const row = findJob(id);
+  if (!row) return;
+  state.openJobId = id;
+  document.getElementById("copy-status").textContent = "";
+  renderJobDialog(row);
+  const dialog = document.getElementById("job-dialog");
+  detailReturnFocus = document.activeElement;
+  if (!dialog.open) dialog.showModal();
+  document.getElementById("job-dialog-title").focus();
+}
+
+function closeJob() {
+  const dialog = document.getElementById("job-dialog");
+  if (dialog.open) dialog.close();
+}
+
+function syncMarginControls() {
+  const input = document.getElementById("target-margin");
+  if (document.activeElement !== input) input.value = String(state.globalMargin);
+  for (const btn of document.querySelectorAll("[data-margin]")) {
+    const on = Number(btn.dataset.margin) === state.globalMargin;
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  const count = state.selected.size;
+  document.getElementById("selected-count").textContent = count === 1 ? "1 selected" : `${count.toLocaleString()} selected`;
+}
+
 function slug(value) {
   return String(value || "other").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
@@ -221,8 +536,8 @@ function pruneFilters() {
 }
 
 function compareValues(a, b, key) {
-  const va = a[key];
-  const vb = b[key];
+  const va = cellSortValue(a, key);
+  const vb = cellSortValue(b, key);
   const aEmpty = va == null || va === "";
   const bEmpty = vb == null || vb === "";
   if (aEmpty && bEmpty) return 0;
@@ -239,8 +554,10 @@ function compareValues(a, b, key) {
 function compareRows(a, b) {
   const base = compareValues(a, b, state.sortKey);
   if (base === 0) return String(a["Job Key"] || "").localeCompare(String(b["Job Key"] || ""));
-  const aEmpty = a[state.sortKey] == null || a[state.sortKey] === "";
-  const bEmpty = b[state.sortKey] == null || b[state.sortKey] === "";
+  const va = cellSortValue(a, state.sortKey);
+  const vb = cellSortValue(b, state.sortKey);
+  const aEmpty = va == null || va === "";
+  const bEmpty = vb == null || vb === "";
   if (aEmpty || bEmpty) return base;
   return state.sortDir === "asc" ? base : -base;
 }
@@ -406,8 +723,22 @@ function renderDropTotals() {
 }
 
 function renderTable(rows) {
+  const columns = viewColumns();
   const head = document.createElement("tr");
-  state.columns.forEach((col, index) => {
+  const selectTh = document.createElement("th");
+  selectTh.className = "select-col";
+  selectTh.scope = "col";
+  const selectAll = document.createElement("input");
+  selectAll.type = "checkbox";
+  selectAll.id = "select-visible";
+  selectAll.title = "Select all jobs in this view";
+  selectAll.setAttribute("aria-label", "Select all jobs in this view");
+  const selectedVisible = rows.filter((row) => state.selected.has(row.__id)).length;
+  selectAll.checked = rows.length > 0 && selectedVisible === rows.length;
+  selectAll.indeterminate = selectedVisible > 0 && selectedVisible < rows.length;
+  selectTh.appendChild(selectAll);
+  head.appendChild(selectTh);
+  columns.forEach((col, index) => {
     const th = document.createElement("th");
     th.scope = "col";
     if (WRAP.has(col)) th.classList.add("wrap");
@@ -428,18 +759,21 @@ function renderTable(rows) {
   const body = document.createDocumentFragment();
   for (const row of rows) {
     const tr = document.createElement("tr");
-    state.columns.forEach((col, index) => {
+    tr.dataset.jobId = row.__id;
+    tr.classList.toggle("is-selected", state.selected.has(row.__id));
+    const selectTd = document.createElement("td");
+    selectTd.className = "select-col";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.selectJob = row.__id;
+    box.checked = state.selected.has(row.__id);
+    box.setAttribute("aria-label", `Select ${formatCell("Standard Title", row["Standard Title"])}`);
+    selectTd.appendChild(box);
+    tr.appendChild(selectTd);
+    columns.forEach((col, index) => {
       const td = document.createElement("td");
-      if (WRAP.has(col)) td.classList.add("wrap");
-      if (NUMERIC.has(col)) td.classList.add("num");
       if (index === 0) td.classList.add("sticky");
-      if (col === "Status") {
-        td.appendChild(el("span", `badge ${statusClass(row[col])}`, formatCell(col, row[col])));
-      } else if (col === "Discipline") {
-        td.appendChild(el("span", `badge disc disc-${slug(row[col])}`, formatCell(col, row[col])));
-      } else {
-        td.textContent = formatCell(col, row[col]);
-      }
+      fillDataCell(td, row, col);
       tr.appendChild(td);
     });
     body.appendChild(tr);
@@ -452,7 +786,7 @@ function cardFields(row, keys) {
   for (const key of keys) {
     const wrap = document.createElement("div");
     const label = key === "BR" ? "BR (bill rate)" : key;
-    wrap.append(el("dt", null, label), el("dd", null, formatCell(key, row[key])));
+    wrap.append(el("dt", null, label), fieldValue(row, key));
     dl.appendChild(wrap);
   }
   return dl;
@@ -461,19 +795,34 @@ function cardFields(row, keys) {
 function renderCards(rows) {
   const host = document.getElementById("cards");
   const frag = document.createDocumentFragment();
-  const primary = CARD_PRIMARY.filter((key) => state.columns.includes(key));
-  rows.forEach((row, index) => {
-    const key = String(row["Job Key"] || index);
+  const columns = viewColumns();
+  const primary = CARD_PRIMARY.filter((key) => columns.includes(key));
+  rows.forEach((row) => {
+    const key = row.__id;
     const card = el("article", "card");
+    card.dataset.jobId = key;
+    card.classList.toggle("is-selected", state.selected.has(key));
+    const picker = el("label", "card-select");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.selectJob = key;
+    box.checked = state.selected.has(key);
+    box.setAttribute("aria-label", `Select ${formatCell("Standard Title", row["Standard Title"])}`);
+    picker.append(box, document.createTextNode(" Select"));
     const head = el("div", "card-head");
-    head.append(el("h3", null, formatCell("Standard Title", row["Standard Title"])), el("span", `badge ${statusClass(row.Status)}`, formatCell("Status", row.Status)));
+    const title = el("button", "row-open", formatCell("Standard Title", row["Standard Title"]));
+    title.type = "button";
+    title.dataset.openJob = key;
+    title.setAttribute("aria-label", `Open details for ${formatCell("Standard Title", row["Standard Title"])}`);
+    head.append(title, el("span", `badge ${statusClass(row.Status)}`, formatCell("Status", row.Status)));
     card.append(
+      picker,
       head,
       el("p", "facility", formatCell("Facility", row.Facility)),
       el("p", "card-where", `${formatCell("City", row.City)}, ${formatCell("State", row.State)}`)
     );
     card.appendChild(cardFields(row, primary));
-    const extra = state.columns.filter((col) => !primary.includes(col) && col !== "Standard Title" && col !== "Facility" && col !== "City" && col !== "State");
+    const extra = columns.filter((col) => !primary.includes(col) && col !== "Standard Title" && col !== "Facility" && col !== "City" && col !== "State");
     if (extra.length) {
       const more = el("div");
       more.hidden = !(expandAll || expanded.has(key));
@@ -491,6 +840,9 @@ function renderCards(rows) {
 function render() {
   const rows = visibleRows();
   state.visible = rows;
+  const wrap = document.getElementById("table-wrap");
+  const scrollTop = wrap.scrollTop;
+  const scrollLeft = wrap.scrollLeft;
   const results = document.getElementById("results");
   if (booted && !prefersReduced()) {
     results.classList.add("is-refreshing");
@@ -513,6 +865,13 @@ function render() {
   const sortKey = document.getElementById("sort-key");
   if (sortKey.value !== state.sortKey) sortKey.value = state.sortKey;
   document.getElementById("sort-dir").textContent = state.sortDir === "asc" ? "Ascending" : "Descending";
+  syncMarginControls();
+  wrap.scrollTop = scrollTop;
+  wrap.scrollLeft = scrollLeft;
+  if (state.openJobId) {
+    const open = findJob(state.openJobId);
+    if (open) renderJobDialog(open);
+  }
 }
 
 function filterSummary() {
@@ -522,26 +881,31 @@ function filterSummary() {
     if (selected.length) parts.push(`${facet.label}: ${selected.join(", ")}`);
   }
   if (state.query) parts.push(`Search: ${state.query}`);
+  parts.push(`Target margin ${moneyFmt.format(state.globalMargin)}`);
+  if (state.rowMargins.size) parts.push(`${state.rowMargins.size} custom`);
+  if (document.getElementById("export-selected").checked) parts.push("Selected only");
   const text = parts.join(" · ");
   return text.length > 180 ? `${text.slice(0, 177)}…` : text;
 }
 
 function exportRows() {
-  return state.visible.slice();
+  const selectedOnly = document.getElementById("export-selected").checked;
+  return state.visible.filter((row) => !selectedOnly || state.selected.has(row.__id));
 }
 
 function exportExcel() {
   if (typeof XLSX === "undefined") throw new Error("Excel library missing");
+  const columns = viewColumns();
   const rows = exportRows();
   const data = rows.map((row) => {
     const record = {};
-    for (const col of state.columns) record[col] = row[col] == null ? "" : row[col];
+    for (const col of columns) record[col] = exportValue(row, col);
     return record;
   });
   const sheet = data.length
-    ? XLSX.utils.json_to_sheet(data, { header: state.columns })
-    : XLSX.utils.aoa_to_sheet([state.columns]);
-  sheet["!cols"] = state.columns.map((col) => ({ wch: Math.min(42, Math.max(12, col.length + 2)) }));
+    ? XLSX.utils.json_to_sheet(data, { header: columns })
+    : XLSX.utils.aoa_to_sheet([columns]);
+  sheet["!cols"] = columns.map((col) => ({ wch: Math.min(42, Math.max(12, col.length + 2)) }));
   const book = XLSX.utils.book_new();
   book.Props = { Title: "Soloh Jobs Board", Subject: `Filtered export ${state.dataDate}` };
   XLSX.utils.book_append_sheet(book, sheet, "Jobs");
@@ -552,16 +916,20 @@ function exportPdf() {
   if (!window.jspdf || typeof window.jspdf.jsPDF !== "function") throw new Error("PDF library missing");
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a3" });
+  const columns = viewColumns();
   const rows = exportRows();
-  const body = rows.map((row) => state.columns.map((col) => (row[col] == null || row[col] === "" ? "" : formatCell(col, row[col]))));
+  const body = rows.map((row) => columns.map((col) => {
+    const value = exportValue(row, col);
+    return value == null || value === "" ? "" : formatCell(col, value);
+  }));
   const columnStyles = {};
-  state.columns.forEach((col, index) => {
+  columns.forEach((col, index) => {
     if (WRAP.has(col)) columnStyles[index] = { cellWidth: 88 };
     else if (col === "Standard Title") columnStyles[index] = { cellWidth: 78 };
     else columnStyles[index] = { cellWidth: "wrap" };
   });
   doc.autoTable({
-    head: [state.columns],
+    head: [columns],
     body,
     startY: 36,
     margin: { top: 32, right: 16, bottom: 24, left: 16 },
@@ -605,9 +973,13 @@ async function withBusy(button, label, fn) {
   button.disabled = true;
   button.textContent = label;
   await new Promise((resolve) => window.setTimeout(resolve, 30));
+  const count = exportRows().length;
+  const selectedOnly = document.getElementById("export-selected").checked;
   try {
     fn();
-    notify(`Exported ${state.visible.length.toLocaleString()} jobs in the current view.`);
+    notify(count
+      ? `Exported ${count.toLocaleString()} jobs${selectedOnly ? " (selected only)" : ""}.`
+      : "No selected jobs in this view to export.");
   } catch (err) {
     notify("The export didn't finish. Try again.");
   } finally {
@@ -626,7 +998,7 @@ function closePanels() {
 function buildSortOptions() {
   const select = document.getElementById("sort-key");
   select.replaceChildren();
-  for (const col of state.columns) {
+  for (const col of viewColumns()) {
     const opt = document.createElement("option");
     opt.value = col;
     opt.textContent = col;
@@ -644,6 +1016,7 @@ function playLaunch() {
 }
 
 function reveal() {
+  paintUpdated(state.updatedAt || (files && files.pub.updatedAt) || (files && files.pub.builtAt) || "");
   document.getElementById("data-date").textContent = state.dataDate;
   document.getElementById("lock-date").textContent = state.dataDate;
   const reportBtn = document.getElementById("export-report");
@@ -663,9 +1036,10 @@ async function unlock(password) {
   let report = null;
   if (files.reportEnv) report = new Uint8Array(await decryptEnvelope(files.reportEnv, password));
   if (!decoded || !Array.isArray(decoded.jobs) || !decoded.meta) throw new Error("Unexpected payload");
-  state.jobs = decoded.jobs;
+  state.jobs = assignIds(decoded.jobs);
   state.columns = decoded.meta.columns;
   state.dataDate = decoded.meta.dataDate || files.pub.dataDate;
+  state.updatedAt = decoded.meta.updatedAt || files.pub.updatedAt || files.pub.builtAt || "";
   state.report = report;
 }
 
@@ -685,6 +1059,7 @@ async function loadFiles() {
   }
   files = { pub, jobsEnv, reportEnv };
   document.getElementById("lock-date").textContent = pub.dataDate || "";
+  paintUpdated(pub.updatedAt || pub.builtAt || "");
   state.ready = true;
   launchBtn.disabled = false;
   setStatus("Ready when you are.");
@@ -837,6 +1212,110 @@ function wire() {
   });
   document.getElementById("mapping").addEventListener("click", () => {
     document.getElementById("mapping-dialog").showModal();
+  });
+  document.getElementById("target-margin").addEventListener("input", (event) => {
+    const value = Number(event.target.value);
+    if (!Number.isFinite(value)) return;
+    state.globalMargin = value;
+    render();
+  });
+  document.querySelector(".margin-presets").addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-margin]");
+    if (!btn) return;
+    state.globalMargin = Number(btn.dataset.margin);
+    document.getElementById("target-margin").value = String(state.globalMargin);
+    render();
+  });
+  document.getElementById("apply-margin").addEventListener("click", () => {
+    const raw = document.getElementById("custom-margin").value.trim();
+    const value = Number(raw);
+    if (raw === "" || !Number.isFinite(value)) {
+      notify("Enter a custom margin first.");
+      return;
+    }
+    if (!state.selected.size) {
+      notify("Select one or more jobs, then apply the custom margin.");
+      return;
+    }
+    for (const id of state.selected) state.rowMargins.set(id, value);
+    notify(`Custom margin ${moneyFmt.format(value)} applied to ${state.selected.size.toLocaleString()} jobs.`);
+    render();
+  });
+  document.getElementById("clear-margin").addEventListener("click", () => {
+    if (state.selected.size) {
+      for (const id of state.selected) state.rowMargins.delete(id);
+    } else state.rowMargins.clear();
+    render();
+  });
+  document.getElementById("results").addEventListener("change", (event) => {
+    if (event.target.id === "select-visible") {
+      const ids = state.visible.map((row) => row.__id);
+      if (event.target.checked) ids.forEach((id) => state.selected.add(id));
+      else ids.forEach((id) => state.selected.delete(id));
+      render();
+      return;
+    }
+    const box = event.target.closest("[data-select-job]");
+    if (!box) return;
+    if (box.checked) state.selected.add(box.dataset.selectJob);
+    else state.selected.delete(box.dataset.selectJob);
+    render();
+  });
+  document.getElementById("results").addEventListener("click", (event) => {
+    if (event.target.closest("[data-select-job], .card-select")) return;
+    const opener = event.target.closest("[data-open-job]");
+    if (opener) {
+      openJob(opener.dataset.openJob);
+      return;
+    }
+    const host = event.target.closest("tr[data-job-id], article[data-job-id]");
+    if (!host) return;
+    if (event.target.closest("button, a, input, select, textarea, label")) return;
+    openJob(host.dataset.jobId);
+  });
+  const jobDialog = document.getElementById("job-dialog");
+  document.getElementById("job-dialog-close").addEventListener("click", closeJob);
+  jobDialog.addEventListener("click", (event) => {
+    if (event.target === jobDialog) closeJob();
+  });
+  jobDialog.addEventListener("close", () => {
+    state.openJobId = null;
+    if (detailReturnFocus && typeof detailReturnFocus.focus === "function") {
+      detailReturnFocus.focus();
+      detailReturnFocus = null;
+    }
+  });
+  document.getElementById("copy-summary").addEventListener("click", async () => {
+    const row = findJob(state.openJobId);
+    if (!row) return;
+    const text = jobSummary(row);
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch (err) {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.top = "0";
+      area.style.left = "0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      const commanded = document.execCommand("copy");
+      area.remove();
+      if (commanded) {
+        try {
+          copied = (await navigator.clipboard.readText()) === text;
+        } catch (readErr) {
+          copied = true;
+        }
+      }
+    }
+    document.getElementById("copy-status").textContent = copied
+      ? `Copied: ${text}`
+      : "Copy did not finish. The summary is selected in the panel — copy it from there.";
   });
 }
 
