@@ -138,6 +138,52 @@ ALLIED_RE = re.compile(
 )
 NUMERIC_RE = re.compile(r"-?\d+(?:\.\d+)?")
 DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})")
+CORE_HEADERS = ["Standard Title", "Facility", "City", "State", "Status", "Source"]
+
+
+def header_key(text: str) -> str:
+    text = text.replace("\u00a0", " ").replace("–", "-").replace("—", "-").replace("−", "-")
+    text = re.sub(r"\s*([/%\-])\s*", r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return text
+
+
+# Case, spacing, and a few renames still map onto the columns the board expects.
+ALIASES = {header_key(name): name for name in REQUIRED_HEADERS}
+ALIASES.update(
+    {
+        "bill rate": "BR",
+        "billrate": "BR",
+        "hours per week": "Hours/week",
+        "weekly hours": "Hours/week",
+        "hrs/week": "Hours/week",
+        "hours/wk": "Hours/week",
+        "msp": "MSP %",
+        "msp percent": "MSP %",
+        "msp percentage": "MSP %",
+        "per diem": "Weekly Per Diem",
+        "weekly pd": "Weekly Per Diem",
+        "w2 rate": "W2 RT",
+        "gross weekly": "Gross Weekly Pay",
+        "gross pay": "Gross Weekly Pay",
+        "target margin": "Target Margin Used",
+        "tnm": "Target Margin Used",
+        "nbo hours": "NBO",
+        "non-billable orientation": "NBO",
+        "profession specialty": "Profession - Specialty",
+        "profession/specialty": "Profession - Specialty",
+        "jobid": "Job ID",
+    }
+)
+
+
+def canon_header(raw) -> str:
+    if raw is None:
+        return ""
+    text = re.sub(r"\s+", " ", str(raw).replace("\u00a0", " ")).strip()
+    if not text:
+        return ""
+    return ALIASES.get(header_key(text), text)
 
 
 def discipline_for(title: str, profession: str) -> str:
@@ -236,21 +282,43 @@ def order_columns(headers: list[str]) -> list[str]:
     return ordered
 
 
+def find_master(workbook):
+    for name in workbook.sheetnames:
+        if str(name).strip().lower() == "master":
+            return workbook[name]
+    if len(workbook.sheetnames) == 1:
+        only = workbook.sheetnames[0]
+        print(f"Warning: no sheet named Master; using {only!r}.", file=sys.stderr)
+        return workbook[only]
+    raise SystemExit(f"Workbook has no 'Master' sheet (found {workbook.sheetnames})")
+
+
 def load_jobs(xlsx_path: Path) -> tuple[list[str], list[dict]]:
     workbook = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
-    if "Master" not in workbook.sheetnames:
-        raise SystemExit(f"{xlsx_path} has no 'Master' sheet (found {workbook.sheetnames})")
-    sheet = workbook["Master"]
+    sheet = find_master(workbook)
     rows = sheet.iter_rows(values_only=True)
     try:
         header_row = next(rows)
     except StopIteration:
         raise SystemExit("The Master sheet is empty")
-    headers = [str(cell).strip() if cell is not None else "" for cell in header_row]
-    missing = [name for name in REQUIRED_HEADERS if name not in headers]
+    index = {}
+    header_order = []
+    for pos, cell in enumerate(header_row):
+        name = canon_header(cell)
+        if not name:
+            continue
+        if name in index:
+            print(f"Warning: duplicate column {name!r}; keeping the first.", file=sys.stderr)
+            continue
+        index[name] = pos
+        header_order.append(name)
+    matched = [name for name in CORE_HEADERS if name in index]
+    if len(matched) < 4:
+        found = ", ".join(header_order) or "(none)"
+        raise SystemExit(f"These headers don't look like a Master Jobs sheet: {found}")
+    missing = [name for name in REQUIRED_HEADERS if name not in index]
     if missing:
-        raise SystemExit("Workbook is missing columns: " + ", ".join(missing))
-    index = {name: headers.index(name) for name in headers if name}
+        print("Warning: missing columns left blank: " + ", ".join(missing), file=sys.stderr)
     jobs = []
     for raw in rows:
         if raw is None or all(cell is None or str(cell).strip() == "" for cell in raw):
@@ -270,7 +338,7 @@ def load_jobs(xlsx_path: Path) -> tuple[list[str], list[dict]]:
     workbook.close()
     if not jobs:
         raise SystemExit("No job rows found on the Master sheet")
-    return order_columns(headers), jobs
+    return order_columns(header_order), jobs
 
 
 def infer_date(*paths: Path | None) -> str | None:
@@ -306,6 +374,38 @@ def representative_cases() -> None:
             raise SystemExit(f"Discipline self-check failed for {title!r}: {got} != {expected}")
     if specialty_for("", "ER | RN-ED") != "RN-ED":
         raise SystemExit("Specialty fallback self-check failed")
+    header_cases = {
+        "Hours/week": "Hours/week",
+        "hours / week": "Hours/week",
+        "Bill Rate": "BR",
+        "MSP": "MSP %",
+        "msp %": "MSP %",
+        "Target Margin": "Target Margin Used",
+        "JobID": "Job ID",
+        "Profession - Specialty": "Profession - Specialty",
+        "Extra Column": "Extra Column",
+    }
+    for raw, expected in header_cases.items():
+        got = canon_header(raw)
+        if got != expected:
+            raise SystemExit(f"Header self-check failed for {raw!r}: {got!r} != {expected!r}")
+
+
+def parse_updated_at(text: str | None) -> str:
+    if not text:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    raw = text.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise SystemExit(
+            "--updated-at must be an ISO timestamp, for example 2026-10-13T12:12:00Z"
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_args() -> argparse.Namespace:
@@ -313,6 +413,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--xlsx", required=True, type=Path, help="Path to the Master Jobs workbook")
     parser.add_argument("--pdf", type=Path, help="Optional Chief of Jobs PDF report")
     parser.add_argument("--data-date", help="Board date, YYYY-MM-DD. Defaults to a date found in the file name.")
+    parser.add_argument(
+        "--updated-at",
+        help="When this drop was produced, as an ISO timestamp. Defaults to now. Stored in the encrypted payload and public.json.",
+    )
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="Output directory (default: site/data)")
     return parser.parse_args()
 
@@ -337,6 +441,7 @@ def main() -> None:
     data_date = args.data_date or infer_date(pdf_path, xlsx_path)
     if not data_date or not DATE_RE.fullmatch(data_date):
         raise SystemExit("Pass --data-date YYYY-MM-DD (it was not in the file names).")
+    updated_at = parse_updated_at(args.updated_at)
 
     columns, jobs = load_jobs(xlsx_path)
     counts: dict[str, int] = {}
@@ -347,6 +452,7 @@ def main() -> None:
     payload = {
         "meta": {
             "dataDate": data_date,
+            "updatedAt": updated_at,
             "columns": columns,
             "disciplines": ["RN", "LPN/LVN", "CNA", "Allied", "Other"],
         },
@@ -381,6 +487,7 @@ def main() -> None:
             existing_name = None
     public = {
         "dataDate": data_date,
+        "updatedAt": updated_at,
         "builtAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "hasReport": (args.out / "report.enc.json").is_file(),
         "reportFilename": report_name or existing_name,
@@ -398,6 +505,7 @@ def main() -> None:
         report_path = args.out / "report.enc.json"
         print(f"Wrote {report_path} ({report_path.stat().st_size} bytes)")
     print(f"Data date: {data_date}")
+    print(f"Updated at: {updated_at}")
 
 
 if __name__ == "__main__":

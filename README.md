@@ -23,25 +23,30 @@ Install the build tools once:
 python3 -m pip install -r scripts/requirements.txt
 ```
 
-Put the new workbook and the optional Chief of Jobs PDF somewhere outside this repo. Then regenerate the encrypted files:
+Put the new workbook and the optional Chief of Jobs PDF somewhere outside this repo. Then regenerate the encrypted files with the same team password already in use:
 
 ```bash
 export SOLOH_JOBS_PASSWORD='your-team-password'
 python3 scripts/build_data.py \
   --xlsx /path/to/Master_Jobs.xlsx \
   --pdf /path/to/Chief_of_Jobs_Report_YYYY-MM-DD.pdf \
-  --data-date YYYY-MM-DD
+  --data-date YYYY-MM-DD \
+  --updated-at YYYY-MM-DDTHH:MM:SSZ
 ```
 
-`--pdf` is optional. If you omit `--data-date`, the script uses a `YYYY-MM-DD` it finds in the PDF or workbook file name. It reads the `Master` sheet, derives Discipline, and writes:
+`--pdf` is optional. If you omit `--data-date`, the script uses a `YYYY-MM-DD` it finds in the PDF or workbook file name. `--updated-at` is the run timestamp in ISO form (timezone offsets are accepted; a value with no zone is treated as UTC). If you omit it, the script uses the current time. That timestamp is stored in the encrypted payload and in `public.json`. The clock time alone is not job data. The board formats it in US Eastern and labels it EST or EDT.
 
-- `site/data/jobs.enc.json` — encrypted jobs
+The script reads the `Master` sheet (any capitalization; a workbook with a single sheet is used if it is not named Master). Headers are matched without case sensitivity, and a few common renames still map to the expected columns (`Bill Rate`, `Hours/week`, `MSP`, `JobID`, and similar). Extra columns are kept and show up in the table and the job detail panel. A missing column is left blank and printed as a warning. The build stops only when the headers no longer look like a Master Jobs sheet. It writes:
+
+- `site/data/jobs.enc.json` — encrypted jobs, including the update timestamp
 - `site/data/report.enc.json` — encrypted PDF, when you passed one
-- `site/data/public.json` — data date, build time, and the report’s download name only
+- `site/data/public.json` — data date, update timestamp, build time, and the report’s download name only
 
-Commit those three files and push to `main`. GitHub Actions publishes `site/` ; it does not rebuild the workbook, because the password and the spreadsheet are not in the repo. The script prints job and discipline counts. It does not print row contents.
+A data refresh is published by committing those files and pushing them **directly to `main`**. Do not open a pull request for a data-only update. Feature work is tested first, then merged to `main` the same way so GitHub Pages republishes `site/`. The workflow does not rebuild the workbook, because the password and the spreadsheet are not in the repo. After the Actions run finishes, confirm the live site shows the new “Jobs last updated” time and the features from that drop.
 
-Do not commit `.xlsx` or `.pdf` files, an `.env` file, or a decrypted JSON extract. `.gitignore` already ignores those.
+The script prints job and discipline counts. It does not print row contents.
+
+Do not commit `.xlsx` or `.pdf` files, an `.env` file, a decrypted JSON extract, or the password (including in the commit message). `.gitignore` already ignores the data files and env files.
 
 ## What the board shows
 
@@ -52,6 +57,16 @@ Filters are Specialty, Discipline, City, State, and VMS. VMS is the Source colum
 **Export Excel** and **Export PDF** download the rows in the current view, with every column. The PDF is landscape. **Chief of Jobs report** downloads the original report after decrypting it in the browser. None of these calls a server.
 
 On a narrow screen the table becomes cards. **Expand cards** or **All columns** opens the rest of the fields.
+
+The header shows **Jobs last updated** in US Eastern (EST or EDT), plus the weekday refresh schedule: Monday to Friday at 8 AM, 12 PM, 2 PM, 4 PM, and 8 PM ET.
+
+**Target margin** recalculates W2 RT and gross weekly pay for every row. It defaults to $4,000, with shortcuts for $3,000, $3,500, and $4,000. Check a job and **Apply to selected** to give those rows a different margin. The original pay stays available on hover, and a delta shows when the new figure differs. If the rounded W2 RT is not positive, the cell says “Not viable at target margin.” Excel and PDF exports use the figures on screen and add a **Margin Used** column. **Selected only** limits the export to checked rows in the current view.
+
+Click a row (not its checkbox) to open the full record. The panel groups job info, location, schedule, rates and margin, the pay package at the current margin, and tracking. Columns that are not in those groups, including ones added in a later workbook, appear under Additional. **Copy job summary** copies one recruiter line, for example `RN - ICU @ Louisville, KY - Gross Pay of $2,500.00 for night shift (36 Hours/week)`. Esc, Close, or a click on the backdrop dismisses it.
+
+## Pay formula
+
+W2 RT and gross weekly pay use the Soloh package formula. Load is 1.18. Straight time is the first 40 hours, and hours above that are overtime at 1.5×. MSP is the workbook fraction (6% is 0.06). W2 RT is rounded down to the cent. Gross weekly pay, which adds weekly per diem, is rounded half-up. The inputs are bill rate, hours/week, weeks, weekly per diem, MSP %, NBO hours, and the target margin on screen.
 
 ## Discipline and specialty
 
@@ -77,17 +92,10 @@ The 2026-10-11 drop (359 jobs) classifies as RN 267, LPN/LVN 2, Allied 90, CNA 0
 
 ## GitHub Pages
 
-The workflow `.github/workflows/pages.yml` deploys the `site/` directory from `main` with GitHub Actions.
-
-Pages is not enabled yet. Turn it on once, after this project is on `main`:
-
-1. Open [the repository Pages setting](https://github.com/prashanttyagi3112/soloh-jobs-board/settings/pages).
-2. Under **Build and deployment**, set **Source** to **GitHub Actions**.
-
-The live site will be [https://prashanttyagi3112.github.io/soloh-jobs-board/](https://prashanttyagi3112.github.io/soloh-jobs-board/). The first run starts when `main` receives the workflow. Later pushes to `main` republish the site.
+The workflow `.github/workflows/pages.yml` deploys the `site/` directory from `main` with GitHub Actions. The live site is [https://prashanttyagi3112.github.io/soloh-jobs-board/](https://prashanttyagi3112.github.io/soloh-jobs-board/). A push to `main` republishes it. Data-only refreshes go straight to `main` so that deploy runs without a pull request.
 
 ## Security
 
-Each encrypted file has its own random 16-byte salt and 12-byte IV. The key is PBKDF2-HMAC-SHA256 with 600,000 iterations, and the cipher is AES-256-GCM. The browser decrypts with WebCrypto; the password is not written into the page, the data files, or source control. `site/data/public.json` has the data date and the report filename only, so the lock screen can show the date before unlock.
+Each encrypted file has its own random 16-byte salt and 12-byte IV. The key is PBKDF2-HMAC-SHA256 with 600,000 iterations, and the cipher is AES-256-GCM. The browser decrypts with WebCrypto; the password is not written into the page, the data files, or source control. `site/data/public.json` has the data date, the update timestamp, and the report filename only, so the lock screen can show the date before unlock.
 
-The repository is public. Encryption hides the workbook from casual visitors, but anyone who has the password can decrypt the files. Keep the password off GitHub (including issues, pull requests, and commit messages).
+The repository is public. Encryption hides the workbook from casual visitors, but anyone who has the password can decrypt the files. Keep the password off GitHub (including issues, pull requests, and commit messages). `public.json` may include the update timestamp. It must not include job rows, rates, or the password.
