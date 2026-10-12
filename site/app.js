@@ -69,6 +69,7 @@ const state = {
   rowMargins: new Map(),
   selected: new Set(),
   openJobId: null,
+  hotOnly: false,
 };
 
 const expanded = new Set();
@@ -568,8 +569,85 @@ function haystack(row) {
   return row.__search;
 }
 
+let hotIds = new Set();
+
+function targetGross(row) {
+  const pay = SolohCalc.soloh(
+    row.BR,
+    row["Hours/week"],
+    row.Weeks,
+    row["Weekly Per Diem"],
+    row["MSP %"],
+    row.NBO,
+    state.globalMargin
+  );
+  if (!pay.computable || !pay.viable || !Number.isFinite(pay.gross)) return null;
+  return pay.gross;
+}
+
+function isMedicalPhysics(row) {
+  const text = `${row["Standard Title"] || ""} ${row["Profession - Specialty"] || ""}`.toLowerCase();
+  return text.includes("medical physicist") || text.includes("medical physics");
+}
+
+function hotEligible(row) {
+  if (row.Status !== "Open") return false;
+  if (row.Discipline !== "RN" && row.Discipline !== "Allied") return false;
+  if (isMedicalPhysics(row)) return false;
+  return targetGross(row) != null;
+}
+
+function pickHotForState(jobs) {
+  if (jobs.length <= 3) return jobs.slice();
+  const byPay = jobs.slice().sort((a, b) => {
+    const pay = targetGross(b) - targetGross(a);
+    if (pay) return pay;
+    const openings = (asNumber(b.Openings) || 0) - (asNumber(a.Openings) || 0);
+    if (openings) return openings;
+    return String(a.__id).localeCompare(String(b.__id));
+  });
+  const chosen = new Set(byPay.slice(0, 2).map((row) => row.__id));
+  const byOpenings = jobs.slice().sort((a, b) => {
+    const openings = (asNumber(b.Openings) || 0) - (asNumber(a.Openings) || 0);
+    if (openings) return openings;
+    const pay = targetGross(b) - targetGross(a);
+    if (pay) return pay;
+    return String(a.__id).localeCompare(String(b.__id));
+  });
+  const volume = byOpenings.find((row) => !chosen.has(row.__id));
+  return volume ? [byPay[0], byPay[1], volume] : byPay.slice(0, 2);
+}
+
+function refreshHotIds() {
+  const groups = new Map();
+  for (const row of state.jobs) {
+    if (!hotEligible(row)) continue;
+    const name = row.State == null ? "" : String(row.State);
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(row);
+  }
+  const next = new Set();
+  for (const jobs of groups.values()) {
+    for (const row of pickHotForState(jobs)) next.add(row.__id);
+  }
+  hotIds = next;
+}
+
+function hotMatchCount() {
+  return state.jobs.filter((row) => hotIds.has(row.__id) && matches(row, { ignoreHot: true })).length;
+}
+
+function paintHotButton() {
+  const button = document.getElementById("hot-only");
+  if (!button) return;
+  button.textContent = `Hot Jobs Only (${hotMatchCount().toLocaleString()})`;
+  button.classList.toggle("is-on", state.hotOnly);
+  button.setAttribute("aria-pressed", state.hotOnly ? "true" : "false");
+}
+
 function matches(row, options = {}) {
   if (!state.showAll && row.Status !== "Open") return false;
+  if (!options.ignoreHot && state.hotOnly && !hotIds.has(row.__id)) return false;
   for (const facet of FACETS) {
     if (facet.id === options.ignoreFacet) continue;
     const selected = state.filters[facet.id];
@@ -651,6 +729,7 @@ function compareRows(a, b) {
 }
 
 function visibleRows() {
+  refreshHotIds();
   return state.jobs.filter((row) => matches(row)).sort(compareRows);
 }
 
@@ -958,6 +1037,7 @@ function render() {
   if (sortKey.value !== state.sortKey) sortKey.value = state.sortKey;
   document.getElementById("sort-dir").textContent = state.sortDir === "asc" ? "Ascending" : "Descending";
   syncMarginControls();
+  paintHotButton();
   wrap.scrollTop = scrollTop;
   wrap.scrollLeft = scrollLeft;
   if (state.openJobId) {
@@ -973,6 +1053,7 @@ function filterSummary() {
     if (selected.length) parts.push(`${facet.label}: ${selected.join(", ")}`);
   }
   if (state.query) parts.push(`Search: ${state.query}`);
+  if (state.hotOnly) parts.push("Hot Jobs Only");
   parts.push(`Target margin ${moneyFmt.format(state.globalMargin)}`);
   if (state.rowMargins.size) parts.push(`${state.rowMargins.size} custom`);
   if (document.getElementById("export-selected").checked) parts.push("Selected only");
@@ -1267,9 +1348,14 @@ function wire() {
     state.globalMargin = DEFAULT_MARGIN;
     state.rowMargins.clear();
     state.selected.clear();
+    state.hotOnly = false;
     document.getElementById("target-margin").value = String(DEFAULT_MARGIN);
     document.getElementById("custom-margin").value = "";
     closePanels();
+    render();
+  });
+  document.getElementById("hot-only").addEventListener("click", () => {
+    state.hotOnly = !state.hotOnly;
     render();
   });
   document.getElementById("thead").addEventListener("click", (event) => {

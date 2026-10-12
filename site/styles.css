@@ -334,7 +334,8 @@ h2 { margin: 0 0 0.6rem; font-size: 1.25rem; }
 }
 .margin-panel input[type="number"]:focus { border-color: var(--teal); outline: none; }
 .margin-presets { display: flex; flex-wrap: wrap; gap: 6px; }
-.margin-preset.is-on {
+.margin-preset.is-on,
+#hot-only.is-on {
   border-color: var(--teal);
   color: var(--star);
   box-shadow: 0 0 16px rgba(45, 212, 191, 0.4);
