@@ -60,10 +60,45 @@
         </div>
       </header>
 
-      <div class="freshness">
-        <p id="updated-badge" class="updated-badge">Jobs last updated: …</p>
-        <p class="refresh-note">Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET · Sat and Sun at 9 AM ET</p>
-      </div>
+      <section id="hero" class="hero" aria-label="Tonight's board">
+        <div class="hero-copy">
+          <p class="eyebrow">SoloH Partners</p>
+          <h2>Tonight's board</h2>
+          <p class="hero-lede">The package in this view, the jobs behind it, and what arrived on the latest refresh.</p>
+        </div>
+        <div class="hero-metrics">
+          <button id="best-package" class="hero-card hero-best" type="button">
+            <span class="hero-label">Best package in view</span>
+            <span id="best-gross" class="hero-value">—</span>
+            <span id="best-meta" class="hero-meta">—</span>
+          </button>
+          <article class="hero-card">
+            <p class="hero-label">Jobs in view</p>
+            <p id="job-count" class="hero-value">0</p>
+            <p id="job-meta" class="hero-meta">of 0 this drop</p>
+          </article>
+          <article class="hero-card">
+            <p class="hero-label">Openings in view</p>
+            <p id="opening-count" class="hero-value">0</p>
+            <p id="opening-meta" class="hero-meta">across 0 states</p>
+          </article>
+          <button id="new-only" class="hero-card" type="button" aria-pressed="false">
+            <span class="hero-label">New since last refresh</span>
+            <span id="new-count" class="hero-value">0</span>
+            <span id="new-meta" class="hero-meta">—</span>
+          </button>
+          <button id="hot-hero" class="hero-card" type="button" aria-pressed="false">
+            <span class="hero-label">Hot jobs</span>
+            <span id="hot-count" class="hero-value">0</span>
+            <span class="hero-meta">RN only</span>
+          </button>
+        </div>
+        <div id="quick-chips" class="quick-chips"></div>
+        <div class="freshness">
+          <p id="updated-badge" class="updated-badge">Jobs last updated: …</p>
+          <p class="refresh-note">Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET · Sat and Sun at 9 AM ET</p>
+        </div>
+      </section>
 
       <section id="margin-panel" class="margin-panel" aria-label="Target margin">
         <div class="margin-field">
@@ -82,21 +117,6 @@
         <button id="apply-margin" class="btn secondary" type="button">Apply to selected</button>
         <button id="clear-margin" class="btn ghost" type="button">Clear custom</button>
         <p id="selected-count" class="selected-count">0 selected</p>
-      </section>
-
-      <section class="stats" aria-label="Matching jobs">
-        <article class="stat">
-          <p class="stat-label">Jobs in view</p>
-          <p id="job-count" class="stat-value">0</p>
-        </article>
-        <article class="stat">
-          <p class="stat-label">Openings in view</p>
-          <p id="opening-count" class="stat-value">0</p>
-        </article>
-        <article class="stat">
-          <p class="stat-label">Status filter</p>
-          <p id="view-label" class="stat-value stat-text">Open</p>
-        </article>
       </section>
 
       <div class="source-row">
@@ -122,7 +142,8 @@
             <input id="export-selected" type="checkbox" />
             <span>Selected only</span>
           </label>
-          <button id="hot-only" class="btn ghost" type="button" aria-pressed="false">Hot Jobs Only</button>
+          <button id="hot-only" class="btn ghost" type="button" aria-pressed="false" aria-describedby="hot-note">Hot Jobs Only</button>
+          <span id="hot-note" class="hot-note">Top 2 pay + most openings per state · RN only</span>
           <button id="export-xlsx" class="btn primary" type="button">Export Excel</button>
           <button id="export-pdf" class="btn secondary" type="button">Export PDF</button>
           <button id="reset" class="btn ghost" type="button">Reset filters</button>
@@ -149,7 +170,7 @@
           </table>
         </div>
         <div id="cards" class="cards"></div>
-        <p id="empty" class="empty" hidden>No jobs match these filters.</p>
+        <div id="empty" class="empty" hidden></div>
       </div>
     </main>
 
@@ -193,9 +214,6 @@
       <p class="noscript">Soloh Jobs Board needs JavaScript to decrypt and show jobs in this browser.</p>
     </noscript>
 
-    <script src="vendor/xlsx.full.min.js"></script>
-    <script src="vendor/jspdf.umd.min.js"></script>
-    <script src="vendor/jspdf.plugin.autotable.min.js"></script>
     <script src="calc.js"></script>
     <script src="app.js"></script>
   </body>

@@ -70,6 +70,9 @@ const state = {
   selected: new Set(),
   openJobId: null,
   hotOnly: false,
+  nightOnly: false,
+  newOnly: false,
+  latestSeen: "",
 };
 
 const expanded = new Set();
@@ -224,11 +227,16 @@ function payFor(row) {
   return row.__pay;
 }
 
+const LEAD_COLUMNS = ["Standard Title", "Facility", "City", "State", "Shift", "Gross Weekly Pay", "W2 RT"];
+
 function viewColumns() {
   const cols = state.columns.filter((col) => col !== "Margin Used" && !HIDDEN_COLUMNS.has(col));
-  const at = cols.indexOf("Gross Weekly Pay");
-  cols.splice(at === -1 ? cols.length : at + 1, 0, "Margin Used");
-  return cols;
+  const lead = LEAD_COLUMNS.filter((col) => cols.includes(col));
+  const ordered = lead.concat(cols.filter((col) => !lead.includes(col)));
+  const anchor = ordered.indexOf("W2 RT");
+  const at = anchor === -1 ? ordered.indexOf("Gross Weekly Pay") : anchor;
+  ordered.splice(at === -1 ? ordered.length : at + 1, 0, "Margin Used");
+  return ordered;
 }
 
 function alreadyNotViable(value) {
@@ -344,7 +352,13 @@ function fillDataCell(td, row, col) {
     return;
   }
   if (col === "W2 RT" || col === "Gross Weekly Pay") {
-    appendPayNodes(td, payPresentation(row, col));
+    const view = payPresentation(row, col);
+    const stack = el("span", "pay-stack");
+    appendPayNodes(stack, view);
+    if (!view.viable) td.classList.add("not-viable");
+    else if (view.changed) td.classList.add("pay-changed");
+    if (view.title) td.title = view.title;
+    td.appendChild(stack);
     return;
   }
   if (col === "Standard Title") {
@@ -445,6 +459,21 @@ function countLabel(count, singular, plural) {
   return `${Number(count).toLocaleString()} ${noun}`;
 }
 
+function rowFocusTarget(id) {
+  const preferCard = window.matchMedia("(max-width: 900px)").matches;
+  const rowEl = document.querySelector(`#tbody tr[data-job-id="${CSS.escape(id)}"]`);
+  const cardEl = document.querySelector(`#cards article[data-job-id="${CSS.escape(id)}"]`);
+  if (preferCard && cardEl) return cardEl;
+  return rowEl || cardEl || null;
+}
+
+function dialogFocusable(dialog) {
+  return [...dialog.querySelectorAll("button, [href], input, select, textarea, [tabindex]")].filter((node) => {
+    if (node.disabled || node.getAttribute("tabindex") === "-1") return false;
+    return node.getClientRects().length > 0;
+  });
+}
+
 function openJob(id) {
   const row = findJob(id);
   if (!row) return;
@@ -452,7 +481,7 @@ function openJob(id) {
   document.getElementById("copy-status").textContent = "";
   renderJobDialog(row);
   const dialog = document.getElementById("job-dialog");
-  detailReturnFocus = document.activeElement;
+  detailReturnFocus = rowFocusTarget(id) || document.activeElement;
   if (!dialog.open) dialog.showModal();
   document.getElementById("job-dialog-title").focus();
 }
@@ -585,37 +614,60 @@ function targetGross(row) {
   return pay.gross;
 }
 
-function isMedicalPhysics(row) {
-  const text = `${row["Standard Title"] || ""} ${row["Profession - Specialty"] || ""}`.toLowerCase();
-  return text.includes("medical physicist") || text.includes("medical physics");
+function hotTitle(row) {
+  return String(row["Standard Title"] || "").trim().toLowerCase();
+}
+
+function compareHotPay(a, b) {
+  const pay = targetGross(b) - targetGross(a);
+  if (pay) return pay;
+  const openings = (asNumber(b.Openings) || 0) - (asNumber(a.Openings) || 0);
+  if (openings) return openings;
+  return String(a.__id).localeCompare(String(b.__id));
+}
+
+function compareHotOpenings(a, b) {
+  const openings = (asNumber(b.Openings) || 0) - (asNumber(a.Openings) || 0);
+  if (openings) return openings;
+  const pay = targetGross(b) - targetGross(a);
+  if (pay) return pay;
+  return String(a.__id).localeCompare(String(b.__id));
 }
 
 function hotEligible(row) {
   if (row.Status !== "Open") return false;
-  if (row.Discipline !== "RN" && row.Discipline !== "Allied") return false;
-  if (isMedicalPhysics(row)) return false;
+  if (row.Discipline !== "RN") return false;
   return targetGross(row) != null;
 }
 
 function pickHotForState(jobs) {
   if (jobs.length <= 3) return jobs.slice();
-  const byPay = jobs.slice().sort((a, b) => {
-    const pay = targetGross(b) - targetGross(a);
-    if (pay) return pay;
-    const openings = (asNumber(b.Openings) || 0) - (asNumber(a.Openings) || 0);
-    if (openings) return openings;
-    return String(a.__id).localeCompare(String(b.__id));
-  });
-  const chosen = new Set(byPay.slice(0, 2).map((row) => row.__id));
-  const byOpenings = jobs.slice().sort((a, b) => {
-    const openings = (asNumber(b.Openings) || 0) - (asNumber(a.Openings) || 0);
-    if (openings) return openings;
-    const pay = targetGross(b) - targetGross(a);
-    if (pay) return pay;
-    return String(a.__id).localeCompare(String(b.__id));
-  });
-  const volume = byOpenings.find((row) => !chosen.has(row.__id));
-  return volume ? [byPay[0], byPay[1], volume] : byPay.slice(0, 2);
+  const byPay = jobs.slice().sort(compareHotPay);
+  const chosen = [];
+  const chosenIds = new Set();
+  const titles = new Set();
+  function take(row) {
+    chosen.push(row);
+    chosenIds.add(row.__id);
+    titles.add(hotTitle(row));
+  }
+  for (const row of byPay) {
+    if (chosen.length >= 2) break;
+    if (titles.has(hotTitle(row))) continue;
+    take(row);
+  }
+  if (chosen.length < 2) {
+    for (const row of byPay) {
+      if (chosen.length >= 2) break;
+      if (chosenIds.has(row.__id)) continue;
+      take(row);
+    }
+  }
+  const byOpenings = jobs.slice().sort(compareHotOpenings);
+  let volume = byOpenings.find((row) => !chosenIds.has(row.__id) && !titles.has(hotTitle(row)));
+  if (!volume) volume = byOpenings.find((row) => !chosenIds.has(row.__id));
+  if (volume) take(volume);
+  return chosen;
 }
 
 function refreshHotIds() {
@@ -645,9 +697,19 @@ function paintHotButton() {
   button.setAttribute("aria-pressed", state.hotOnly ? "true" : "false");
 }
 
+function isNightShift(row) {
+  return /\bnight\b/i.test(String(row.Shift || ""));
+}
+
+function isNewJob(row) {
+  return state.latestSeen !== "" && String(row["First Seen"] || "") === state.latestSeen;
+}
+
 function matches(row, options = {}) {
   if (!state.showAll && row.Status !== "Open") return false;
   if (!options.ignoreHot && state.hotOnly && !hotIds.has(row.__id)) return false;
+  if (!options.ignoreNight && state.nightOnly && !isNightShift(row)) return false;
+  if (!options.ignoreNew && state.newOnly && !isNewJob(row)) return false;
   for (const facet of FACETS) {
     if (facet.id === options.ignoreFacet) continue;
     const selected = state.filters[facet.id];
@@ -657,7 +719,7 @@ function matches(row, options = {}) {
   return true;
 }
 
-function optionsFor(facet, ignoreSearch) {
+function facetCounts(facet, ignoreSearch) {
   const counts = new Map();
   for (const row of state.jobs) {
     if (!matches(row, { ignoreFacet: facet.id, ignoreSearch })) continue;
@@ -666,6 +728,11 @@ function optionsFor(facet, ignoreSearch) {
     const value = String(raw);
     counts.set(value, (counts.get(value) || 0) + 1);
   }
+  return counts;
+}
+
+function optionsFor(facet, ignoreSearch) {
+  const counts = facetCounts(facet, ignoreSearch);
   for (const value of state.filters[facet.id]) {
     if (!counts.has(value)) counts.set(value, 0);
   }
@@ -684,20 +751,24 @@ function optionsFor(facet, ignoreSearch) {
 }
 
 function pruneFilters() {
-  let changed = true;
   let guard = 0;
-  while (changed && guard < 6) {
-    changed = false;
+  while (guard < 8) {
     guard += 1;
+    const stillMatches = state.jobs.some((row) => matches(row, { ignoreSearch: true }));
+    if (stillMatches) return;
+    let removed = false;
     for (const facet of FACETS) {
-      const available = new Set(optionsFor(facet, true).map((opt) => opt.value));
+      const counts = facetCounts(facet, true);
       for (const value of [...state.filters[facet.id]]) {
-        if (!available.has(value)) {
+        if (!counts.get(value)) {
           state.filters[facet.id].delete(value);
-          changed = true;
+          removed = true;
+          break;
         }
       }
+      if (removed) break;
     }
+    if (!removed) return;
   }
 }
 
@@ -755,31 +826,125 @@ function countSources(rows) {
   return counts;
 }
 
-function animateCount(node, target) {
-  const next = String(target);
-  if (node.dataset.target === next) return;
-  const shown = Number(String(node.textContent).replace(/,/g, ""));
-  const from = Number.isFinite(shown) ? shown : 0;
-  node.dataset.target = next;
-  if (prefersReduced()) {
-    node.textContent = target.toLocaleString();
-    node.dataset.value = next;
-    return;
+function paintSettle(node, text) {
+  if (!node) return;
+  const next = String(text);
+  const previous = node.dataset.shown;
+  node.dataset.shown = next;
+  node.textContent = next;
+  if (previous === undefined || previous === next || prefersReduced()) return;
+  const card = node.closest(".hero-card");
+  if (!card) return;
+  card.classList.remove("is-settled");
+  void card.offsetWidth;
+  card.classList.add("is-settled");
+}
+
+function formatShortDate(iso) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  if (!match) return String(iso || "");
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
+}
+
+function bestInView(rows) {
+  let best = null;
+  let bestGross = -Infinity;
+  for (const row of rows) {
+    const gross = targetGross(row);
+    if (gross == null) continue;
+    const openings = asNumber(row.Openings) || 0;
+    const better = gross > bestGross
+      || (gross === bestGross && best && openings > (asNumber(best.Openings) || 0))
+      || (gross === bestGross && best && openings === (asNumber(best.Openings) || 0) && String(row.__id) < String(best.__id));
+    if (better) {
+      best = row;
+      bestGross = gross;
+    }
   }
-  const began = performance.now();
-  const duration = 700;
-  const token = {};
-  node._anim = token;
-  function frame(now) {
-    if (node._anim !== token) return;
-    const progress = Math.min(1, (now - began) / duration);
-    const eased = 1 - (1 - progress) ** 3;
-    const value = Math.round(from + (target - from) * eased);
-    node.textContent = value.toLocaleString();
-    if (progress < 1) requestAnimationFrame(frame);
-    else node.dataset.value = next;
+  return best ? { row: best, gross: bestGross } : null;
+}
+
+function newMatchCount() {
+  return state.jobs.filter((row) => isNewJob(row) && matches(row, { ignoreNew: true })).length;
+}
+
+function nightMatchCount() {
+  return state.jobs.filter((row) => isNightShift(row) && matches(row, { ignoreNight: true })).length;
+}
+
+function placeLabel(row) {
+  const city = row.City ? String(row.City) : "";
+  const region = row.State ? String(row.State) : "";
+  return [city, region].filter(Boolean).join(", ");
+}
+
+function renderQuickChips() {
+  const host = document.getElementById("quick-chips");
+  if (!host) return;
+  host.replaceChildren();
+  const nightBtn = el("button", "quick-chip");
+  nightBtn.type = "button";
+  nightBtn.dataset.quick = "night";
+  nightBtn.classList.toggle("is-on", state.nightOnly);
+  nightBtn.setAttribute("aria-pressed", state.nightOnly ? "true" : "false");
+  nightBtn.append(document.createTextNode("Night shift "), el("span", null, nightMatchCount().toLocaleString()));
+  host.appendChild(nightBtn);
+  const stateFacet = FACETS.find((facet) => facet.id === "state");
+  for (const opt of optionsFor(stateFacet, false)) {
+    const btn = el("button", "quick-chip");
+    btn.type = "button";
+    btn.dataset.quickState = opt.value;
+    const on = state.filters.state.has(opt.value);
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.append(document.createTextNode(`${opt.value} `), el("span", null, opt.count.toLocaleString()));
+    host.appendChild(btn);
   }
-  requestAnimationFrame(frame);
+}
+
+function paintHero(rows) {
+  const bestBtn = document.getElementById("best-package");
+  const best = bestInView(rows);
+  if (best && bestBtn) {
+    bestBtn.disabled = false;
+    bestBtn.dataset.jobId = best.row.__id;
+    paintSettle(document.getElementById("best-gross"), moneyFmt.format(best.gross));
+    const title = formatCell("Standard Title", best.row["Standard Title"]);
+    const place = placeLabel(best.row);
+    document.getElementById("best-meta").textContent = place ? `${title} · ${place}` : title;
+    bestBtn.setAttribute("aria-label", `Open ${title}${place ? ` in ${place}` : ""}, ${moneyFmt.format(best.gross)} gross weekly pay`);
+  } else if (bestBtn) {
+    bestBtn.disabled = true;
+    delete bestBtn.dataset.jobId;
+    paintSettle(document.getElementById("best-gross"), "—");
+    document.getElementById("best-meta").textContent = "No viable package in this view";
+    bestBtn.setAttribute("aria-label", "No viable package in this view");
+  }
+  paintSettle(document.getElementById("job-count"), rows.length.toLocaleString());
+  const jobMeta = document.getElementById("job-meta");
+  if (jobMeta) jobMeta.textContent = `of ${state.jobs.length.toLocaleString()} this drop`;
+  paintSettle(document.getElementById("opening-count"), openingCount(rows).toLocaleString());
+  const statesInView = new Set(rows.map((row) => String(row.State || "")).filter(Boolean));
+  const openingMeta = document.getElementById("opening-meta");
+  if (openingMeta) {
+    openingMeta.textContent = statesInView.size === 1 ? "across 1 state" : `across ${statesInView.size} states`;
+  }
+  paintSettle(document.getElementById("new-count"), newMatchCount().toLocaleString());
+  const newMeta = document.getElementById("new-meta");
+  if (newMeta) newMeta.textContent = state.latestSeen ? `first seen ${formatShortDate(state.latestSeen)}` : "—";
+  const newBtn = document.getElementById("new-only");
+  if (newBtn) {
+    newBtn.classList.toggle("is-on", state.newOnly);
+    newBtn.setAttribute("aria-pressed", state.newOnly ? "true" : "false");
+  }
+  paintSettle(document.getElementById("hot-count"), hotMatchCount().toLocaleString());
+  const hotHero = document.getElementById("hot-hero");
+  if (hotHero) {
+    hotHero.classList.toggle("is-on", state.hotOnly);
+    hotHero.setAttribute("aria-pressed", state.hotOnly ? "true" : "false");
+  }
+  renderQuickChips();
 }
 
 function facetSummary(facet) {
@@ -843,26 +1008,50 @@ function updateFacets() {
   renderChips();
 }
 
-function renderChips() {
-  const host = document.getElementById("chips");
-  host.replaceChildren();
+function chipButton(label, attrs) {
+  const btn = el("button", "chip");
+  btn.type = "button";
+  Object.entries(attrs).forEach(([key, value]) => {
+    btn.dataset[key] = value;
+  });
+  btn.setAttribute("aria-label", `Remove ${label}`);
+  btn.append(document.createTextNode(`${label} `), el("span", "chip-x", "×"));
+  return btn;
+}
+
+function chipButtons() {
+  const buttons = [];
   for (const facet of FACETS) {
     for (const value of state.filters[facet.id]) {
-      const btn = el("button", "chip");
-      btn.type = "button";
-      btn.dataset.facet = facet.id;
-      btn.dataset.value = value;
-      btn.append(document.createTextNode(`${facet.label}: ${value} `), el("span", null, "×"));
-      host.appendChild(btn);
+      buttons.push(chipButton(`${facet.label}: ${value}`, { facet: facet.id, value }));
     }
   }
-  if (state.query) {
-    const btn = el("button", "chip");
-    btn.type = "button";
-    btn.dataset.clearSearch = "1";
-    btn.textContent = `Search: ${state.query} ×`;
-    host.appendChild(btn);
-  }
+  if (state.nightOnly) buttons.push(chipButton("Night shift", { clearNight: "1" }));
+  if (state.newOnly) buttons.push(chipButton("New since last refresh", { clearNew: "1" }));
+  if (state.hotOnly) buttons.push(chipButton("Hot Jobs Only", { clearHot: "1" }));
+  if (state.query) buttons.push(chipButton(`Search: ${state.query}`, { clearSearch: "1" }));
+  return buttons;
+}
+
+function renderChips() {
+  const host = document.getElementById("chips");
+  host.replaceChildren(...chipButtons());
+}
+
+function renderEmpty(rows) {
+  const empty = document.getElementById("empty");
+  const show = rows.length === 0;
+  empty.hidden = !show;
+  document.getElementById("table-wrap").hidden = show;
+  document.getElementById("cards").hidden = show;
+  if (!show) return;
+  empty.replaceChildren(el("p", "empty-title", "No jobs match these filters."));
+  const chips = chipButtons();
+  if (!chips.length) return;
+  empty.appendChild(el("p", "empty-note", "Active filters"));
+  const row = el("div", "empty-chips");
+  chips.forEach((btn) => row.appendChild(btn));
+  empty.appendChild(row);
 }
 
 function renderSources(rows) {
@@ -901,9 +1090,10 @@ function renderTable(rows) {
   selectAll.title = "Select all jobs in this view";
   selectAll.setAttribute("aria-label", "Select all jobs in this view");
   const selectedVisible = rows.filter((row) => state.selected.has(row.__id)).length;
-  selectAll.checked = rows.length > 0 && selectedVisible === rows.length;
+  const allVisible = rows.length > 0 && selectedVisible === rows.length;
+  selectAll.checked = allVisible;
   selectAll.indeterminate = selectedVisible > 0 && selectedVisible < rows.length;
-  selectAll.title = selectedVisible === 0 ? "Select all jobs in this view" : "Clear the selection";
+  selectAll.title = allVisible ? "Clear jobs in this view" : "Select all jobs in this view";
   selectAll.setAttribute("aria-label", selectAll.title);
   selectTh.appendChild(selectAll);
   head.appendChild(selectTh);
@@ -912,6 +1102,8 @@ function renderTable(rows) {
     th.scope = "col";
     if (WRAP.has(col)) th.classList.add("wrap");
     if (NUMERIC.has(col)) th.classList.add("num");
+    if (col === "Gross Weekly Pay" || col === "W2 RT") th.classList.add("pay-col");
+    th.dataset.col = col;
     if (index === 0) th.classList.add("sticky");
     if (state.sortKey === col) th.setAttribute("aria-sort", state.sortDir === "asc" ? "ascending" : "descending");
     const btn = el("button", "sort-btn");
@@ -972,6 +1164,7 @@ function renderCards(rows) {
     const key = row.__id;
     const card = el("article", "card");
     card.dataset.jobId = key;
+    card.tabIndex = 0;
     card.classList.toggle("is-selected", state.selected.has(key));
     const picker = el("label", "card-select");
     const box = document.createElement("input");
@@ -1009,6 +1202,8 @@ function renderCards(rows) {
 }
 
 function render() {
+  refreshHotIds();
+  pruneFilters();
   const rows = visibleRows();
   state.visible = rows;
   const wrap = document.getElementById("table-wrap");
@@ -1020,19 +1215,14 @@ function render() {
     window.setTimeout(() => results.classList.remove("is-refreshing"), 180);
   }
   booted = true;
-  animateCount(document.getElementById("job-count"), rows.length);
-  animateCount(document.getElementById("opening-count"), openingCount(rows));
-  document.getElementById("view-label").textContent = state.showAll ? "All" : "Open";
+  paintHero(rows);
   document.getElementById("result-line").textContent =
     `${countLabel(rows.length, "matching job", "matching jobs")} · ${countLabel(openingCount(rows), "opening", "openings")}`;
   renderSources(rows);
   updateFacets();
   renderTable(rows);
   renderCards(rows);
-  const empty = rows.length === 0;
-  document.getElementById("empty").hidden = !empty;
-  document.getElementById("table-wrap").hidden = empty;
-  document.getElementById("cards").hidden = empty;
+  renderEmpty(rows);
   const sortKey = document.getElementById("sort-key");
   if (sortKey.value !== state.sortKey) sortKey.value = state.sortKey;
   document.getElementById("sort-dir").textContent = state.sortDir === "asc" ? "Ascending" : "Descending";
@@ -1053,6 +1243,8 @@ function filterSummary() {
     if (selected.length) parts.push(`${facet.label}: ${selected.join(", ")}`);
   }
   if (state.query) parts.push(`Search: ${state.query}`);
+  if (state.nightOnly) parts.push("Night shift");
+  if (state.newOnly) parts.push("New since last refresh");
   if (state.hotOnly) parts.push("Hot Jobs Only");
   parts.push(`Target margin ${moneyFmt.format(state.globalMargin)}`);
   if (state.rowMargins.size) parts.push(`${state.rowMargins.size} custom`);
@@ -1151,18 +1343,67 @@ function exportReport() {
   window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-async function withBusy(button, label, fn) {
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-lazy="${src}"]`);
+    if (existing && existing.dataset.loaded === "1") {
+      resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.dataset.lazy = src;
+    script.onload = () => {
+      script.dataset.loaded = "1";
+      resolve();
+    };
+    script.onerror = () => {
+      script.remove();
+      reject(new Error(src));
+    };
+    document.body.appendChild(script);
+  });
+}
+
+let excelReady = null;
+function ensureExcel() {
+  if (typeof XLSX !== "undefined") return Promise.resolve();
+  excelReady = excelReady || loadScript("vendor/xlsx.full.min.js").catch((err) => {
+    excelReady = null;
+    throw err;
+  });
+  return excelReady;
+}
+
+let pdfReady = null;
+function ensurePdf() {
+  if (window.jspdf && typeof window.jspdf.jsPDF === "function") return Promise.resolve();
+  pdfReady = pdfReady || (async () => {
+    await loadScript("vendor/jspdf.umd.min.js");
+    await loadScript("vendor/jspdf.plugin.autotable.min.js");
+  })().catch((err) => {
+    pdfReady = null;
+    throw err;
+  });
+  return pdfReady;
+}
+
+async function withBusy(button, label, prepare, fn) {
+  const selectedOnly = document.getElementById("export-selected").checked;
+  const count = exportRows().length;
+  if (selectedOnly && count === 0) {
+    notify("No selected jobs in this view to export.");
+    return;
+  }
   const original = button.textContent;
   button.disabled = true;
-  button.textContent = label;
+  button.textContent = "Loading…";
   await new Promise((resolve) => window.setTimeout(resolve, 30));
-  const count = exportRows().length;
-  const selectedOnly = document.getElementById("export-selected").checked;
   try {
+    if (prepare) await prepare();
+    button.textContent = label;
     fn();
-    notify(count
-      ? `Exported ${countLabel(count, "job", "jobs")}${selectedOnly ? " (selected only)" : ""}.`
-      : "No selected jobs in this view to export.");
+    notify(`Exported ${countLabel(count, "job", "jobs")}${selectedOnly ? " (selected only)" : ""}.`);
   } catch (err) {
     notify("The export didn't finish. Try again.");
   } finally {
@@ -1213,17 +1454,25 @@ function reveal() {
   document.getElementById("board-title").focus();
 }
 
+function latestSeenDate() {
+  let latest = String(state.dataDate || "");
+  for (const row of state.jobs) {
+    const seen = row["First Seen"] == null ? "" : String(row["First Seen"]);
+    if (seen > latest) latest = seen;
+  }
+  return latest;
+}
+
 async function unlock(password) {
   const jobsBuf = await decryptEnvelope(files.jobsEnv, password);
   const decoded = JSON.parse(new TextDecoder().decode(jobsBuf));
-  let report = null;
-  if (files.reportEnv) report = new Uint8Array(await decryptEnvelope(files.reportEnv, password));
   if (!decoded || !Array.isArray(decoded.jobs) || !decoded.meta) throw new Error("Unexpected payload");
   state.jobs = assignIds(decoded.jobs);
   state.columns = decoded.meta.columns;
   state.dataDate = decoded.meta.dataDate || files.pub.dataDate;
   state.updatedAt = decoded.meta.updatedAt || files.pub.updatedAt || files.pub.builtAt || "";
-  state.report = report;
+  state.report = null;
+  state.latestSeen = latestSeenDate();
 }
 
 async function loadFiles() {
@@ -1234,13 +1483,7 @@ async function loadFiles() {
   const jobsRes = await fetch(`data/jobs.enc.json?v=${version}`, { cache: "no-store" });
   if (!jobsRes.ok) throw new Error("jobs");
   const jobsEnv = await jobsRes.json();
-  let reportEnv = null;
-  if (pub.hasReport) {
-    const reportRes = await fetch(`data/${pub.reportFile || "report.enc.json"}?v=${version}`, { cache: "no-store" });
-    if (!reportRes.ok) throw new Error("report");
-    reportEnv = await reportRes.json();
-  }
-  files = { pub, jobsEnv, reportEnv };
+  files = { pub, jobsEnv, reportEnv: null };
   document.getElementById("lock-date").textContent = pub.dataDate || "";
   paintUpdated(pub.updatedAt || pub.builtAt || "");
   state.ready = true;
@@ -1253,11 +1496,11 @@ function wire() {
     event.preventDefault();
     if (!state.ready || !crypto.subtle) return;
     const password = passwordInput.value;
-    passwordInput.value = "";
     launchBtn.disabled = true;
     setStatus("Deriving the key…");
     try {
       await unlock(password);
+      passwordInput.value = "";
       await playLaunch();
       reveal();
     } catch (err) {
@@ -1268,6 +1511,7 @@ function wire() {
       setStatus("That password does not open this board.");
       launchBtn.disabled = false;
       passwordInput.focus();
+      passwordInput.select();
     }
   });
 
@@ -1313,17 +1557,25 @@ function wire() {
       searchInput.focus();
     }
   });
-  document.getElementById("chips").addEventListener("click", (event) => {
-    const btn = event.target.closest("button");
-    if (!btn) return;
+  function clearChip(btn) {
+    if (!btn) return false;
     if (btn.dataset.clearSearch) {
       state.query = "";
       searchInput.value = "";
-    } else if (btn.dataset.facet) {
-      state.filters[btn.dataset.facet].delete(btn.dataset.value);
-    }
+    } else if (btn.dataset.clearNight) state.nightOnly = false;
+    else if (btn.dataset.clearNew) state.newOnly = false;
+    else if (btn.dataset.clearHot) state.hotOnly = false;
+    else if (btn.dataset.facet) state.filters[btn.dataset.facet].delete(btn.dataset.value);
+    else return false;
     pruneFilters();
     render();
+    return true;
+  }
+  document.getElementById("chips").addEventListener("click", (event) => {
+    clearChip(event.target.closest("button"));
+  });
+  document.getElementById("empty").addEventListener("click", (event) => {
+    clearChip(event.target.closest("button"));
   });
   let searchTimer = 0;
   searchInput.addEventListener("input", () => {
@@ -1349,13 +1601,48 @@ function wire() {
     state.rowMargins.clear();
     state.selected.clear();
     state.hotOnly = false;
+    state.nightOnly = false;
+    state.newOnly = false;
+    state.sortKey = "State";
+    state.sortDir = "asc";
     document.getElementById("target-margin").value = String(DEFAULT_MARGIN);
     document.getElementById("custom-margin").value = "";
     closePanels();
     render();
   });
+  function setHotOnly(on) {
+    const next = Boolean(on);
+    if (next && !state.hotOnly) {
+      state.sortKey = "Gross Weekly Pay";
+      state.sortDir = "desc";
+    }
+    state.hotOnly = next;
+    render();
+  }
   document.getElementById("hot-only").addEventListener("click", () => {
-    state.hotOnly = !state.hotOnly;
+    setHotOnly(!state.hotOnly);
+  });
+  document.getElementById("hot-hero").addEventListener("click", () => {
+    setHotOnly(!state.hotOnly);
+  });
+  document.getElementById("new-only").addEventListener("click", () => {
+    state.newOnly = !state.newOnly;
+    render();
+  });
+  document.getElementById("best-package").addEventListener("click", () => {
+    const id = document.getElementById("best-package").dataset.jobId;
+    if (id) openJob(id);
+  });
+  document.getElementById("quick-chips").addEventListener("click", (event) => {
+    const btn = event.target.closest("button");
+    if (!btn) return;
+    if (btn.dataset.quick === "night") state.nightOnly = !state.nightOnly;
+    else if (btn.dataset.quickState) {
+      const selected = state.filters.state;
+      if (selected.has(btn.dataset.quickState)) selected.delete(btn.dataset.quickState);
+      else selected.add(btn.dataset.quickState);
+    } else return;
+    pruneFilters();
     render();
   });
   document.getElementById("thead").addEventListener("click", (event) => {
@@ -1394,10 +1681,10 @@ function wire() {
     }
   });
   document.getElementById("export-xlsx").addEventListener("click", (event) => {
-    withBusy(event.currentTarget, "Preparing…", exportExcel);
+    withBusy(event.currentTarget, "Preparing…", ensureExcel, exportExcel);
   });
   document.getElementById("export-pdf").addEventListener("click", (event) => {
-    withBusy(event.currentTarget, "Preparing…", exportPdf);
+    withBusy(event.currentTarget, "Preparing…", ensurePdf, exportPdf);
   });
   const reportButton = document.getElementById("export-report");
   if (reportButton) {
@@ -1473,8 +1760,9 @@ function wire() {
     if (event.target.id === "select-visible") {
       const ids = state.visible.map((row) => row.__id);
       const selectedVisible = ids.filter((id) => state.selected.has(id)).length;
-      if (selectedVisible === 0) ids.forEach((id) => state.selected.add(id));
-      else state.selected.clear();
+      const allVisible = ids.length > 0 && selectedVisible === ids.length;
+      if (allVisible) ids.forEach((id) => state.selected.delete(id));
+      else ids.forEach((id) => state.selected.add(id));
       render();
       return;
     }
@@ -1509,12 +1797,30 @@ function wire() {
   jobDialog.addEventListener("click", (event) => {
     if (event.target === jobDialog) closeJob();
   });
-  jobDialog.addEventListener("close", () => {
-    state.openJobId = null;
-    if (detailReturnFocus && typeof detailReturnFocus.focus === "function") {
-      detailReturnFocus.focus();
-      detailReturnFocus = null;
+  jobDialog.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab" || !jobDialog.open) return;
+    const focusable = dialogFocusable(jobDialog);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey) {
+      if (active === first || !jobDialog.contains(active) || !focusable.includes(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (active === last || !jobDialog.contains(active) || !focusable.includes(active)) {
+      event.preventDefault();
+      first.focus();
     }
+  });
+  jobDialog.addEventListener("close", () => {
+    const id = state.openJobId;
+    state.openJobId = null;
+    let target = detailReturnFocus;
+    if (!target || !target.isConnected) target = id ? rowFocusTarget(id) : null;
+    detailReturnFocus = null;
+    if (target && typeof target.focus === "function") target.focus();
   });
   document.getElementById("copy-summary").addEventListener("click", async () => {
     const row = findJob(state.openJobId);
