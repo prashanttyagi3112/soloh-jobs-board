@@ -801,21 +801,14 @@ dialog .copy-status { margin: 0; flex-basis: 100%; color: var(--warn); font-size
   .board { padding: 12px 12px 24px; }
   h1 { font-size: 20px; }
   .top {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    width: 100%;
-  }
-  .brand { min-width: 0; }
-  .top-meta {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     gap: 8px;
-    align-items: start;
-    max-width: none;
     width: 100%;
   }
+  .brand { grid-column: 1; grid-row: 1; min-width: 0; }
+  .top-meta { display: contents; }
   #lock-btn { grid-column: 2; grid-row: 1; justify-self: end; }
   .drop-totals {
     grid-column: 1 / -1;
@@ -830,7 +823,7 @@ dialog .copy-status { margin: 0; flex-basis: 100%; color: var(--warn); font-size
   .stat-value { font-size: 16px; }
   .source-row { grid-column: 1 / -1; }
   .filter-bar, .facets { flex-direction: column; align-items: stretch; }
-  .search-field, .ms, #more-filters { width: 100%; min-width: 0; flex: none; }
+  .search-field, .facets, .ms, #more-filters { width: 100%; min-width: 0; flex: none; height: auto; }
   .ms-value,
   input[type="search"],
   input[type="password"],
@@ -847,11 +840,15 @@ dialog .copy-status { margin: 0; flex-basis: 100%; color: var(--warn); font-size
     align-items: end;
   }
   .margin-field, .margin-presets, .selected-count { min-width: 0; }
-  .margin-presets { grid-column: 1 / -1; width: 100%; }
+  .margin-panel .margin-field:first-of-type { grid-column: 1; grid-row: 1; }
+  .margin-panel .margin-field:last-of-type { grid-column: 2; grid-row: 1; }
+  .margin-presets { grid-column: 1 / -1; grid-row: 2; width: 100%; height: 40px; }
+  #apply-margin { grid-column: 1; grid-row: 3; }
+  #clear-margin { grid-column: 2; grid-row: 3; }
   .margin-preset { flex: 1; }
   .margin-panel input[type="number"],
   .margin-panel .btn { width: 100%; }
-  .selected-count { grid-column: 1 / -1; margin: 0; }
+  .selected-count { grid-column: 1 / -1; grid-row: 4; margin: 0; }
   .actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -860,7 +857,7 @@ dialog .copy-status { margin: 0; flex-basis: 100%; color: var(--warn); font-size
   .actions .btn, .col-menu .btn { width: 100%; }
   .table-scroll, .scroll-hint { display: none; }
   .cards { display: grid; gap: 8px; }
-  .card dl { grid-template-columns: 1fr; }
+  .card dl { grid-template-columns: 1fr 1fr; }
   .sort-mobile {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -896,6 +893,4 @@ dialog .copy-status { margin: 0; flex-basis: 100%; color: var(--warn); font-size
 
 @media (max-width: 520px) {
   .stats { grid-template-columns: 1fr 1fr 1fr; }
-  .margin-panel { grid-template-columns: 1fr; }
-  .margin-presets { grid-column: 1; }
 }
