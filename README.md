@@ -50,15 +50,15 @@ Do not commit `.xlsx` or `.pdf` files, an `.env` file, a decrypted JSON extract,
 
 ## What the board shows
 
-Every workbook column is included, plus the derived Discipline column. Default view is **Status = Open**. **Show all statuses** includes hold and closed rows. The header shows this drop’s totals. The stat tiles and the source chips follow the current filters. The footer shows the data date.
+Every workbook column is included, plus the derived Discipline column. Default view is **Status = Open**. **Show all statuses** includes hold and closed rows. The header shows the data date and the per-source counts for the whole drop (HWL, BudE, Magnit, plus any future source). The stat tiles and the source chips follow the current filters.
 
 Filters are Specialty, Discipline, City, State, and VMS. VMS is the Source column (HWL, BudE, Magnit, and any later source). Each is a searchable multi-select. Options narrow to values that still exist given the other selections: Discipline narrows Specialty, State narrows City, VMS narrows the locations and specialties that source actually has, and a choice that no longer matches is cleared. There is also a free-text search across every column. Column headers sort; empty values stay at the bottom. Jobs in view and openings count up when the filter changes.
 
-**Excel** and **PDF** download the rows in the current view. The PDF is landscape. The original Chief of Jobs file stays in the encrypted report and is not a toolbar button. None of these calls a server.
+**Export Excel** and **Export PDF** download the rows in the current view, with every column. The PDF is landscape. The original Chief of Jobs file stays in the encrypted report and is not a toolbar button. None of these calls a server.
 
 On a narrow screen the table becomes cards. **Expand cards** or **All columns** opens the rest of the fields.
 
-The header shows **Jobs last updated** in US Eastern (EST or EDT). The lock screen and the footer say: Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET · Sat and Sun at 9 AM ET.
+The header shows **Jobs last updated** in US Eastern (EST or EDT). The lock screen and the header say: Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET · Sat and Sun at 9 AM ET.
 
 **Target margin** recalculates W2 RT and gross weekly pay for every row. Every visit starts at $4,000. The board does not save a changed margin in the browser or the address bar, and it clears any margin value that was stored before. Shortcuts are $3,000, $3,500, and $4,000. Typing waits until you pause, then recalculates. Blur, Enter, and the shortcut buttons recalculate immediately. Clearing the box, or entering zero, a negative, or anything that is not a number, snaps back to $4,000 on blur or Enter. **Reset filters** does the same, clears custom margins, and clears every selected row. Check a job and **Apply to selected** to give those rows a different margin for this visit. A custom margin has to be greater than zero; zero, a negative, a blank, or anything that is not a number is not applied. The original pay stays available on hover, and a delta shows when the new figure differs. If the rounded W2 RT is not positive, the cell says “Not viable at target margin.” Excel and PDF exports use the figures on screen and include **Margin Used**. In Excel, MSP % is a percent number, so 6% stays numeric. The workbook column Target Margin Used stays in the encrypted file and is not shown, so the only margin on screen is the live one. **Selected only** limits the export to checked rows in the current view.
 

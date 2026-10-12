@@ -223,18 +223,11 @@ function payFor(row) {
   return row.__pay;
 }
 
-const hiddenCols = new Set();
-const LOCKED_COLUMNS = new Set(["Standard Title"]);
-
-function boardColumns() {
+function viewColumns() {
   const cols = state.columns.filter((col) => col !== "Margin Used" && !HIDDEN_COLUMNS.has(col));
   const at = cols.indexOf("Gross Weekly Pay");
   cols.splice(at === -1 ? cols.length : at + 1, 0, "Margin Used");
   return cols;
-}
-
-function viewColumns() {
-  return boardColumns().filter((col) => !hiddenCols.has(col));
 }
 
 function alreadyNotViable(value) {
@@ -722,7 +715,6 @@ function buildFacets() {
   for (const facet of FACETS) {
     const root = el("div", "ms");
     root.dataset.facetRoot = facet.id;
-    if (facet.id !== "specialty" && facet.id !== "discipline") root.classList.add("is-more");
     const btn = el("button", "ms-btn");
     btn.type = "button";
     btn.setAttribute("aria-expanded", "false");
@@ -770,41 +762,6 @@ function updateFacets() {
     list.scrollTop = scroll;
   }
   renderChips();
-  syncMoreFilters();
-}
-
-function syncMoreFilters() {
-  const btn = document.getElementById("more-filters");
-  const host = document.getElementById("facets");
-  if (!btn || !host) return;
-  const extra = ["city", "state", "vms"].reduce((sum, id) => sum + state.filters[id].size, 0);
-  const open = host.classList.contains("show-more");
-  btn.setAttribute("aria-expanded", open ? "true" : "false");
-  btn.textContent = open ? "Fewer filters" : (extra ? `More filters (${extra})` : "More filters");
-}
-
-function closeColumns() {
-  const panel = document.getElementById("columns-panel");
-  const btn = document.getElementById("columns-btn");
-  if (!panel || !btn) return;
-  panel.hidden = true;
-  btn.setAttribute("aria-expanded", "false");
-}
-
-function renderColumnPicker() {
-  const panel = document.getElementById("columns-panel");
-  if (!panel) return;
-  panel.replaceChildren();
-  for (const col of boardColumns()) {
-    const label = el("label", "opt");
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.dataset.column = col;
-    box.checked = !hiddenCols.has(col);
-    box.disabled = LOCKED_COLUMNS.has(col);
-    label.append(box, el("span", null, col));
-    panel.appendChild(label);
-  }
 }
 
 function renderChips() {
@@ -1153,7 +1110,11 @@ function buildSortOptions() {
 }
 
 function playLaunch() {
-  return Promise.resolve();
+  if (prefersReduced()) return Promise.resolve();
+  document.body.classList.add("is-launching");
+  if (window.__stars) window.__stars.setWarp(1);
+  setStatus("Launch");
+  return new Promise((resolve) => window.setTimeout(resolve, 880));
 }
 
 function reveal() {
@@ -1162,7 +1123,6 @@ function reveal() {
   document.getElementById("lock-date").textContent = state.dataDate;
   const reportBtn = document.getElementById("export-report");
   if (reportBtn) reportBtn.hidden = !state.report;
-  renderColumnPicker();
   buildSortOptions();
   renderDropTotals();
   render();
@@ -1204,7 +1164,7 @@ async function loadFiles() {
   paintUpdated(pub.updatedAt || pub.builtAt || "");
   state.ready = true;
   launchBtn.disabled = false;
-  setStatus("Enter the password.");
+  setStatus("Ready when you are.");
 }
 
 function wire() {
@@ -1264,13 +1224,9 @@ function wire() {
   });
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".ms")) closePanels();
-    if (!event.target.closest(".col-menu")) closeColumns();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      closePanels();
-      closeColumns();
-    }
+    if (event.key === "Escape") closePanels();
     if (event.key === "/" && document.getElementById("board").hidden === false && !/input|textarea|select/i.test(event.target.tagName)) {
       event.preventDefault();
       searchInput.focus();
@@ -1370,33 +1326,6 @@ function wire() {
       document.getElementById("mapping-dialog").showModal();
     });
   }
-  document.getElementById("more-filters").addEventListener("click", () => {
-    document.getElementById("facets").classList.toggle("show-more");
-    closePanels();
-    syncMoreFilters();
-  });
-  document.getElementById("columns-btn").addEventListener("click", () => {
-    const panel = document.getElementById("columns-panel");
-    const willOpen = panel.hidden;
-    closePanels();
-    closeColumns();
-    panel.hidden = !willOpen;
-    document.getElementById("columns-btn").setAttribute("aria-expanded", willOpen ? "true" : "false");
-  });
-  document.getElementById("columns-panel").addEventListener("change", (event) => {
-    const box = event.target;
-    if (!box.dataset || !box.dataset.column) return;
-    if (box.checked) hiddenCols.delete(box.dataset.column);
-    else hiddenCols.add(box.dataset.column);
-    if (!viewColumns().includes(state.sortKey)) state.sortKey = viewColumns()[0] || "State";
-    buildSortOptions();
-    render();
-  });
-  document.getElementById("density").addEventListener("click", (event) => {
-    const compact = document.getElementById("table-wrap").classList.toggle("is-compact");
-    event.currentTarget.setAttribute("aria-pressed", compact ? "true" : "false");
-    event.currentTarget.textContent = compact ? "Comfortable" : "Compact";
-  });
   const targetMargin = document.getElementById("target-margin");
   targetMargin.addEventListener("input", () => {
     const value = positiveMargin(targetMargin.value);
@@ -1539,7 +1468,7 @@ function initStars() {
   const canvas = document.getElementById("starfield");
   const ctx = canvas.getContext("2d", { alpha: true });
   const stars = [];
-  const colors = ["232, 234, 239", "232, 234, 239", "232, 234, 239", "154, 166, 255", "125, 206, 196"];
+  const colors = ["244,247,251", "244,247,251", "244,247,251", "244,247,251", "45,212,191", "232,121,249"];
   let width = 0;
   let height = 0;
   let warp = 0;
@@ -1562,14 +1491,14 @@ function initStars() {
 
   function seed() {
     stars.length = 0;
-    const count = Math.min(72, Math.round((width * height) / 24000));
+    const count = Math.min(240, Math.round((width * height) / 8000));
     for (let i = 0; i < count; i += 1) {
       stars.push({
         x: Math.random() * width,
-        y: Math.random() * height * 0.45,
-        z: 0.35 + Math.random() * 0.8,
-        r: Math.random() * 0.7 + 0.25,
-        a: 0.12 + Math.random() * 0.22,
+        y: Math.random() * height,
+        z: 0.35 + Math.random() * 1.15,
+        r: Math.random() < 0.9 ? Math.random() * 1.15 + 0.3 : 1.5 + Math.random(),
+        a: 0.35 + Math.random() * 0.65,
         tw: Math.random() * Math.PI * 2,
         color: colors[i % colors.length],
       });
@@ -1585,7 +1514,7 @@ function initStars() {
     }
     for (const star of stars) {
       if (!reduce) {
-        star.y += star.z * (0.03 + warp * 4);
+        star.y += star.z * (0.12 + warp * 16);
         star.tw += 0.02;
         if (star.y > height + 8) {
           star.y = -4;
