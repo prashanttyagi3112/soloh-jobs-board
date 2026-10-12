@@ -42,7 +42,7 @@ The script reads the `Master` sheet (any capitalization; a workbook with a singl
 - `site/data/report.enc.json` — encrypted PDF, when you passed one
 - `site/data/public.json` — data date, update timestamp, build time, and the report’s download name only
 
-A data refresh is published by committing those files and pushing them **directly to `main`**. Do not open a pull request for a data-only update. Feature work is tested first, then merged to `main` the same way so GitHub Pages republishes `site/`. The workflow does not rebuild the workbook, because the password and the spreadsheet are not in the repo. After the Actions run finishes, confirm the live site shows the new “Jobs last updated” time and the features from that drop.
+A data refresh is published by committing those files and pushing them **directly to `main`**. Do not open a pull request for a data-only update. Design and feature changes stay on a pull request until the owner approves them. The workflow does not rebuild the workbook, because the password and the spreadsheet are not in the repo. After the Actions run finishes, confirm the live site shows the new “Jobs last updated” time.
 
 The script prints job and discipline counts. It does not print row contents.
 
@@ -60,7 +60,7 @@ On a narrow screen the table becomes cards. **Expand cards** or **All columns** 
 
 The header shows **Jobs last updated** in US Eastern (EST or EDT), plus the weekday refresh schedule: Monday to Friday at 8 AM, 12 PM, 2 PM, 4 PM, and 8 PM ET.
 
-**Target margin** recalculates W2 RT and gross weekly pay for every row. It defaults to $4,000, with shortcuts for $3,000, $3,500, and $4,000. Check a job and **Apply to selected** to give those rows a different margin. The original pay stays available on hover, and a delta shows when the new figure differs. If the rounded W2 RT is not positive, the cell says “Not viable at target margin.” Excel and PDF exports use the figures on screen and add a **Margin Used** column. **Selected only** limits the export to checked rows in the current view.
+**Target margin** recalculates W2 RT and gross weekly pay for every row. Every visit starts at $4,000. The board does not save a changed margin in the browser or the address bar, and it clears any margin value that was stored before. Shortcuts are $3,000, $3,500, and $4,000. Clearing the box, or entering zero, a negative, or anything that is not a number, snaps back to $4,000 on blur or Enter and recalculates. **Reset filters** does the same and also clears custom margins. Check a job and **Apply to selected** to give those rows a different margin for this visit. The original pay stays available on hover, and a delta shows when the new figure differs. If the rounded W2 RT is not positive, the cell says “Not viable at target margin.” Excel and PDF exports use the figures on screen and include **Margin Used**. The workbook column Target Margin Used stays in the encrypted file and is not shown, so the only margin on screen is the live one. **Selected only** limits the export to checked rows in the current view.
 
 Click a row (not its checkbox) to open the full record. The panel groups job info, location, schedule, rates and margin, the pay package at the current margin, and tracking. Columns that are not in those groups, including ones added in a later workbook, appear under Additional. **Copy job summary** copies one recruiter line, for example `RN - ICU @ Louisville, KY - Gross Pay of $2,500.00 for night shift (36 Hours/week)`. Esc, Close, or a click on the backdrop dismisses it.
 

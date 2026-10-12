@@ -571,15 +571,24 @@ tbody tr:nth-child(even) td.sticky { background: var(--row-alt); }
 @media (prefers-reduced-motion: no-preference) {
   tbody tr { transition: background 0.15s ease; }
 }
-tbody tr:hover td { background: var(--hover); }
-tbody tr:hover td.sticky, tbody tr:hover td.select-col {
-  background: var(--hover);
-  box-shadow: inset 3px 0 0 var(--teal), 0 0 18px rgba(45, 212, 191, 0.15);
-}
+tbody tr:hover td { background-color: #261a48; }
+tbody tr:hover td.sticky { background-color: #261a48; }
+tbody tr:hover td.select-col { background-color: #261a48; }
 tbody tr { cursor: pointer; }
-tbody tr.is-selected td, tbody tr.is-selected td.sticky, tbody tr.is-selected td.select-col {
-  background: rgba(88, 28, 135, 0.42);
-}
+tbody tr.is-selected td,
+tbody tr.is-selected td.sticky,
+tbody tr.is-selected td.select-col { background-color: #3a215f; }
+tbody tr.is-selected:hover td,
+tbody tr.is-selected:hover td.sticky,
+tbody tr.is-selected:hover td.select-col { background-color: #4c2d78; }
+tbody tr.has-custom td.sticky,
+tbody tr.has-custom td.select-col { background-color: #12343a; }
+tbody tr.has-custom:hover td.sticky,
+tbody tr.has-custom:hover td.select-col { background-color: #184858; }
+tbody tr.has-custom.is-selected td.sticky,
+tbody tr.has-custom.is-selected td.select-col { background-color: #2c3058; }
+tbody tr.has-custom.is-selected:hover td.sticky,
+tbody tr.has-custom.is-selected:hover td.select-col { background-color: #3a3c6c; }
 .row-open {
   border: 0;
   background: transparent;
@@ -803,14 +812,31 @@ dialog .copy-status { margin: 0; flex-basis: 100%; color: #fde68a; font-size: 0.
   .table-scroll, .scroll-hint { display: none; }
   .cards { display: grid; gap: 12px; }
   .top {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
     width: 100%;
   }
   .brand { min-width: 0; }
-  .top-meta { text-align: right; }
-  .drop-totals { grid-column: 1 / -1; margin: 4px 0 0; max-width: 100%; font-size: 0.75rem; overflow-wrap: anywhere; }
+  .top-meta {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 8px;
+    align-items: center;
+    text-align: left;
+    width: 100%;
+  }
+  .date { grid-column: 1; }
+  #lock-btn { grid-column: 2; grid-row: 1; justify-self: end; }
+  .drop-totals {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin: 0;
+    max-width: 100%;
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+  }
   h1 { font-size: 1.35rem; }
   .freshness, .margin-panel, .controls, .results, .source-row { max-width: 100%; min-width: 0; }
   .margin-panel { display: grid; grid-template-columns: 1fr 1fr; align-items: end; }

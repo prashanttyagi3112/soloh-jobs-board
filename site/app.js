@@ -25,6 +25,8 @@ const NUMERIC = new Set([
   "NBO",
 ]);
 const WRAP = new Set(["Facility", "Profession - Specialty", "Job Key", "Job ID"]);
+const PLAIN_TEXT = new Set(["Job ID"]);
+const HIDDEN_COLUMNS = new Set(["Target Margin Used"]);
 const CARD_PRIMARY = [
   "Discipline",
   "Shift",
@@ -41,6 +43,7 @@ const CARD_PRIMARY = [
 
 const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const numFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const DEFAULT_MARGIN = 4000;
 
 const state = {
   jobs: [],
@@ -61,7 +64,7 @@ const state = {
   sortDir: "asc",
   ready: false,
   updatedAt: "",
-  globalMargin: 4000,
+  globalMargin: DEFAULT_MARGIN,
   rowMargins: new Map(),
   selected: new Set(),
   openJobId: null,
@@ -144,6 +147,7 @@ function asNumber(value) {
 
 function formatCell(key, value) {
   if (value == null || value === "") return "—";
+  if (PLAIN_TEXT.has(key)) return String(value);
   if (typeof value === "number") {
     if (PERCENT.has(key)) {
       const pct = Math.abs(value) <= 1 ? value * 100 : value;
@@ -219,8 +223,8 @@ function payFor(row) {
 }
 
 function viewColumns() {
-  const cols = state.columns.filter((col) => col !== "Margin Used");
-  const at = cols.indexOf("Target Margin Used");
+  const cols = state.columns.filter((col) => col !== "Margin Used" && !HIDDEN_COLUMNS.has(col));
+  const at = cols.indexOf("Gross Weekly Pay");
   cols.splice(at === -1 ? cols.length : at + 1, 0, "Margin Used");
   return cols;
 }
@@ -278,6 +282,7 @@ function cellSortValue(row, key) {
 }
 
 function exportValue(row, col) {
+  if (PLAIN_TEXT.has(col)) return row[col] == null || row[col] === "" ? "" : String(row[col]);
   if (col === "Margin Used") return marginFor(row);
   if (col === "W2 RT" || col === "Gross Weekly Pay") {
     const pay = payFor(row);
@@ -292,7 +297,7 @@ const DETAIL_GROUPS = [
   { title: "Job info", keys: ["Standard Title", "Discipline", "Profession - Specialty", "Job ID", "Job Key", "Openings"] },
   { title: "Location / Facility", keys: ["Facility", "City", "State"] },
   { title: "Schedule", keys: ["Shift", "Hours/week", "Weeks"] },
-  { title: "Rates & Margin", keys: ["BR", "MSP %", "NBO", "Target Margin Used", "Per Diem Month"] },
+  { title: "Rates & Margin", keys: ["BR", "MSP %", "NBO", "Per Diem Month"] },
   { title: "Pay package", keys: ["Margin Used", "W2 RT", "Weekly Per Diem", "Gross Weekly Pay"] },
   { title: "Tracking", keys: ["First Seen", "Last Seen", "Status", "Source"] },
 ];
@@ -304,7 +309,7 @@ function detailSections() {
     title: group.title,
     fields: group.keys.filter((key) => key === "Margin Used" || present.has(key)),
   })).filter((section) => section.fields.length);
-  const extra = state.columns.filter((key) => !known.has(key));
+  const extra = state.columns.filter((key) => !known.has(key) && !HIDDEN_COLUMNS.has(key));
   if (extra.length) sections.push({ title: "Additional", fields: extra });
   return sections;
 }
@@ -449,14 +454,75 @@ function closeJob() {
   if (dialog.open) dialog.close();
 }
 
-function syncMarginControls() {
-  const input = document.getElementById("target-margin");
-  if (document.activeElement !== input) input.value = String(state.globalMargin);
+function paintMarginPresets() {
   for (const btn of document.querySelectorAll("[data-margin]")) {
     const on = Number(btn.dataset.margin) === state.globalMargin;
     btn.classList.toggle("is-on", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   }
+}
+
+function positiveMargin(raw) {
+  const text = String(raw ?? "").trim();
+  if (text === "") return null;
+  const value = Number(text);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
+
+function clearStoredMargin() {
+  const matches = (key) => /margin/i.test(key);
+  try {
+    for (const store of [localStorage, sessionStorage]) {
+      const keys = [];
+      for (let i = 0; i < store.length; i += 1) keys.push(store.key(i));
+      for (const key of keys) {
+        if (key && matches(key)) store.removeItem(key);
+      }
+    }
+  } catch (err) {
+    // Private mode can block storage. The in-memory default still applies.
+  }
+  try {
+    const names = (document.cookie || "")
+      .split(";")
+      .map((part) => part.split("=")[0].trim())
+      .filter((name) => name && matches(name));
+    const paths = new Set(["/", location.pathname, location.pathname.replace(/\/[^/]*$/, "") || "/"]);
+    for (const name of names) {
+      for (const path of paths) {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${path || "/"}`;
+      }
+    }
+  } catch (err) {
+    // Cookies may be blocked. Nothing margin-related is written later.
+  }
+  try {
+    const url = new URL(location.href);
+    const drop = [...url.searchParams.keys()].filter(matches);
+    if (!drop.length) return;
+    for (const key of drop) url.searchParams.delete(key);
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+  } catch (err) {
+    // A bad URL must not block the board.
+  }
+}
+
+function applyTargetMargin(raw) {
+  const parsed = positiveMargin(raw);
+  const value = parsed == null ? DEFAULT_MARGIN : parsed;
+  const input = document.getElementById("target-margin");
+  const changed = state.globalMargin !== value;
+  state.globalMargin = value;
+  input.value = String(value);
+  paintMarginPresets();
+  if (changed) render();
+}
+
+function syncMarginControls() {
+  const input = document.getElementById("target-margin");
+  if (document.activeElement !== input) input.value = String(state.globalMargin);
+  paintMarginPresets();
   const count = state.selected.size;
   document.getElementById("selected-count").textContent = count === 1 ? "1 selected" : `${count.toLocaleString()} selected`;
 }
@@ -736,6 +802,8 @@ function renderTable(rows) {
   const selectedVisible = rows.filter((row) => state.selected.has(row.__id)).length;
   selectAll.checked = rows.length > 0 && selectedVisible === rows.length;
   selectAll.indeterminate = selectedVisible > 0 && selectedVisible < rows.length;
+  selectAll.title = selectedVisible === 0 ? "Select all jobs in this view" : "Clear the selection";
+  selectAll.setAttribute("aria-label", selectAll.title);
   selectTh.appendChild(selectAll);
   head.appendChild(selectTh);
   columns.forEach((col, index) => {
@@ -761,6 +829,7 @@ function renderTable(rows) {
     const tr = document.createElement("tr");
     tr.dataset.jobId = row.__id;
     tr.classList.toggle("is-selected", state.selected.has(row.__id));
+    tr.classList.toggle("has-custom", state.rowMargins.has(row.__id));
     const selectTd = document.createElement("td");
     selectTd.className = "select-col";
     const box = document.createElement("input");
@@ -1162,6 +1231,10 @@ function wire() {
     searchInput.value = "";
     document.getElementById("show-all").checked = false;
     for (const input of document.querySelectorAll(".ms-search")) input.value = "";
+    state.globalMargin = DEFAULT_MARGIN;
+    state.rowMargins.clear();
+    document.getElementById("target-margin").value = String(DEFAULT_MARGIN);
+    document.getElementById("custom-margin").value = "";
     closePanels();
     render();
   });
@@ -1213,18 +1286,29 @@ function wire() {
   document.getElementById("mapping").addEventListener("click", () => {
     document.getElementById("mapping-dialog").showModal();
   });
-  document.getElementById("target-margin").addEventListener("input", (event) => {
-    const value = Number(event.target.value);
-    if (!Number.isFinite(value)) return;
+  const targetMargin = document.getElementById("target-margin");
+  targetMargin.addEventListener("input", () => {
+    const value = positiveMargin(targetMargin.value);
+    if (value == null) return;
     state.globalMargin = value;
+    paintMarginPresets();
     render();
+  });
+  targetMargin.addEventListener("blur", () => {
+    applyTargetMargin(targetMargin.value);
+  });
+  targetMargin.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyTargetMargin(targetMargin.value);
   });
   document.querySelector(".margin-presets").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-margin]");
     if (!btn) return;
     state.globalMargin = Number(btn.dataset.margin);
     document.getElementById("target-margin").value = String(state.globalMargin);
-    render();
+    paintMarginPresets();
+    window.setTimeout(() => render(), 0);
   });
   document.getElementById("apply-margin").addEventListener("click", () => {
     const raw = document.getElementById("custom-margin").value.trim();
@@ -1245,13 +1329,15 @@ function wire() {
     if (state.selected.size) {
       for (const id of state.selected) state.rowMargins.delete(id);
     } else state.rowMargins.clear();
+    document.getElementById("custom-margin").value = "";
     render();
   });
   document.getElementById("results").addEventListener("change", (event) => {
     if (event.target.id === "select-visible") {
       const ids = state.visible.map((row) => row.__id);
-      if (event.target.checked) ids.forEach((id) => state.selected.add(id));
-      else ids.forEach((id) => state.selected.delete(id));
+      const selectedVisible = ids.filter((id) => state.selected.has(id)).length;
+      if (selectedVisible === 0) ids.forEach((id) => state.selected.add(id));
+      else state.selected.clear();
       render();
       return;
     }
@@ -1430,9 +1516,21 @@ function initStars() {
   };
 }
 
+clearStoredMargin();
 buildFacets();
 wire();
 initStars();
+window.addEventListener("pageshow", (event) => {
+  clearStoredMargin();
+  if (!event.persisted) return;
+  state.globalMargin = DEFAULT_MARGIN;
+  state.rowMargins.clear();
+  const target = document.getElementById("target-margin");
+  const custom = document.getElementById("custom-margin");
+  if (target) target.value = String(DEFAULT_MARGIN);
+  if (custom) custom.value = "";
+  if (state.ready) render();
+});
 
 if (!window.crypto || !crypto.subtle) {
   setStatus("Open this board on https or http://127.0.0.1 so the browser can decrypt.");
