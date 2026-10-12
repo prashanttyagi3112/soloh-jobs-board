@@ -42,6 +42,7 @@
     </div>
 
     <main id="board" class="board" hidden>
+      <p id="preview-note" class="preview-note" hidden></p>
       <header class="top">
         <div class="brand">
           <div class="orbit orbit-sm" aria-hidden="true">
@@ -124,6 +125,7 @@
           </label>
           <button id="export-xlsx" class="btn primary" type="button">Export Excel</button>
           <button id="export-pdf" class="btn secondary" type="button">Export PDF</button>
+          <button id="hot-only" class="btn ghost" type="button" hidden aria-pressed="false">Hot only</button>
           <button id="reset" class="btn ghost" type="button">Reset filters</button>
         </div>
         <p id="result-line" class="result-line" aria-live="polite"></p>
@@ -139,6 +141,12 @@
         <button id="expand-all" class="btn ghost" type="button">Expand cards</button>
       </div>
       <p class="scroll-hint">Click a row, or focus it and press Enter or Space, for every field. Use the checkbox to select jobs. Scroll sideways for rates, margins, and ids.</p>
+
+      <section id="hot-strip" class="hot-strip" hidden aria-label="Hot jobs">
+        <h2>Hot jobs</h2>
+        <p class="hot-strip-note">Highest weekly pay and the fullest openings, at the margin on screen.</p>
+        <div id="hot-cards" class="hot-cards"></div>
+      </section>
 
       <div id="results" class="results">
         <div id="table-wrap" class="table-scroll">

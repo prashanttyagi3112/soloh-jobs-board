@@ -69,9 +69,24 @@ const state = {
   rowMargins: new Map(),
   selected: new Set(),
   openJobId: null,
+  hotOnly: false,
 };
 
 const expanded = new Set();
+const preview = new Set();
+{
+  const raw = new URLSearchParams(window.location.search).get("preview") || "";
+  const parts = raw.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (parts.includes("all")) ["1", "2", "3", "4"].forEach((flag) => preview.add(flag));
+  for (const part of parts) {
+    if (part === "1" || part === "2" || part === "3" || part === "4") preview.add(part);
+  }
+}
+let hotIndex = { topPay: new Set(), highVolume: new Set(), hot: new Set() };
+
+function previewOn(flag) {
+  return preview.has(String(flag));
+}
 let expandAll = false;
 let booted = false;
 let files = null;
@@ -351,7 +366,14 @@ function fillDataCell(td, row, col) {
     btn.type = "button";
     btn.dataset.openJob = row.__id;
     btn.setAttribute("aria-label", `Open details for ${formatCell(col, row[col])}`);
-    td.appendChild(btn);
+    const flags = hotFlags(row);
+    if (!flags) {
+      td.appendChild(btn);
+      return;
+    }
+    const stack = el("div", "title-stack");
+    stack.append(btn, flags);
+    td.appendChild(stack);
     return;
   }
   td.textContent = formatCell(col, row[col]);
@@ -568,8 +590,39 @@ function haystack(row) {
   return row.__search;
 }
 
+function grossValue(row) {
+  const pay = payFor(row);
+  if (!pay.computable || !pay.viable || !Number.isFinite(pay.gross)) return null;
+  return pay.gross;
+}
+
+function refreshHotIndex() {
+  const ranked = state.jobs
+    .filter((row) => row.Status === "Open")
+    .map((row) => ({ id: row.__id, gross: grossValue(row) }))
+    .filter((item) => item.gross != null)
+    .sort((a, b) => b.gross - a.gross || a.id.localeCompare(b.id));
+  const count = ranked.length ? Math.max(1, Math.ceil(ranked.length * 0.1)) : 0;
+  const topPay = new Set(ranked.slice(0, count).map((item) => item.id));
+  const highVolume = new Set();
+  for (const row of state.jobs) {
+    if ((asNumber(row.Openings) || 0) >= 5) highVolume.add(row.__id);
+  }
+  const hot = new Set([...topPay, ...highVolume]);
+  hotIndex = { topPay, highVolume, hot };
+}
+
+function hotFlags(row) {
+  if (!previewOn(2)) return null;
+  const flags = el("span", "hot-flags");
+  if (hotIndex.topPay.has(row.__id)) flags.appendChild(el("span", "hot-badge hot-pay-badge", "🔥 Hot"));
+  if (hotIndex.highVolume.has(row.__id)) flags.appendChild(el("span", "hot-badge hot-volume-badge", "🚀 High volume"));
+  return flags.childElementCount ? flags : null;
+}
+
 function matches(row, options = {}) {
   if (!state.showAll && row.Status !== "Open") return false;
+  if (!options.ignoreHot && state.hotOnly && previewOn(4) && !hotIndex.hot.has(row.__id)) return false;
   for (const facet of FACETS) {
     if (facet.id === options.ignoreFacet) continue;
     const selected = state.filters[facet.id];
@@ -651,6 +704,7 @@ function compareRows(a, b) {
 }
 
 function visibleRows() {
+  refreshHotIndex();
   return state.jobs.filter((row) => matches(row)).sort(compareRows);
 }
 
@@ -853,6 +907,7 @@ function renderTable(rows) {
     tr.tabIndex = 0;
     tr.classList.toggle("is-selected", state.selected.has(row.__id));
     tr.classList.toggle("has-custom", state.rowMargins.has(row.__id));
+    tr.classList.toggle("is-hot", previewOn(3) && hotIndex.hot.has(row.__id));
     const selectTd = document.createElement("td");
     selectTd.className = "select-col";
     const box = document.createElement("input");
@@ -894,6 +949,7 @@ function renderCards(rows) {
     const card = el("article", "card");
     card.dataset.jobId = key;
     card.classList.toggle("is-selected", state.selected.has(key));
+    card.classList.toggle("is-hot", previewOn(3) && hotIndex.hot.has(key));
     const picker = el("label", "card-select");
     const box = document.createElement("input");
     box.type = "checkbox";
@@ -913,6 +969,8 @@ function renderCards(rows) {
       el("p", "facility", formatCell("Facility", row.Facility)),
       el("p", "card-where", `${formatCell("City", row.City)}, ${formatCell("State", row.State)}`)
     );
+    const flags = hotFlags(row);
+    if (flags) card.insertBefore(flags, card.querySelector(".facility"));
     card.appendChild(cardFields(row, primary));
     const extra = columns.filter((col) => !primary.includes(col) && col !== "Standard Title" && col !== "Facility" && col !== "City" && col !== "State");
     if (extra.length) {
@@ -927,6 +985,57 @@ function renderCards(rows) {
     frag.appendChild(card);
   });
   host.replaceChildren(frag);
+}
+
+function renderHotStrip() {
+  const host = document.getElementById("hot-strip");
+  const cards = document.getElementById("hot-cards");
+  if (!host || !cards) return;
+  if (!previewOn(1)) {
+    host.hidden = true;
+    cards.replaceChildren();
+    return;
+  }
+  const pool = state.jobs.filter((row) => row.Status === "Open" && matches(row, { ignoreHot: true }));
+  const byPay = pool
+    .filter((row) => grossValue(row) != null)
+    .sort((a, b) => grossValue(b) - grossValue(a) || a.__id.localeCompare(b.__id));
+  const byOpenings = pool
+    .slice()
+    .sort((a, b) => (asNumber(b.Openings) || 0) - (asNumber(a.Openings) || 0) || a.__id.localeCompare(b.__id));
+  const picked = [];
+  const seen = new Set();
+  function add(row) {
+    if (!row || seen.has(row.__id) || picked.length >= 8) return;
+    seen.add(row.__id);
+    picked.push(row);
+  }
+  for (let index = 0; index < 4; index += 1) add(byPay[index]);
+  for (const row of byOpenings) add(row);
+  for (const row of byPay) {
+    if (picked.length >= 5) break;
+    add(row);
+  }
+  cards.replaceChildren();
+  if (!picked.length) {
+    cards.appendChild(el("p", "hot-strip-note", "No open jobs in this view."));
+  }
+  for (const row of picked) {
+    const card = el("article", "hot-card");
+    card.dataset.jobId = row.__id;
+    card.tabIndex = 0;
+    const openings = asNumber(row.Openings) || 0;
+    const pay = el("p", "hot-pay");
+    appendPayNodes(pay, payPresentation(row, "Gross Weekly Pay"));
+    card.append(
+      el("h3", null, formatCell("Standard Title", row["Standard Title"])),
+      el("p", "hot-where", `${formatCell("City", row.City)}, ${formatCell("State", row.State)}`),
+      pay,
+      el("p", "hot-meta", `${countLabel(openings, "opening", "openings")} · ${formatCell("Source", row.Source)}`)
+    );
+    cards.appendChild(card);
+  }
+  host.hidden = false;
 }
 
 function render() {
@@ -950,6 +1059,7 @@ function render() {
   updateFacets();
   renderTable(rows);
   renderCards(rows);
+  renderHotStrip();
   const empty = rows.length === 0;
   document.getElementById("empty").hidden = !empty;
   document.getElementById("table-wrap").hidden = empty;
@@ -973,6 +1083,7 @@ function filterSummary() {
     if (selected.length) parts.push(`${facet.label}: ${selected.join(", ")}`);
   }
   if (state.query) parts.push(`Search: ${state.query}`);
+  if (state.hotOnly && previewOn(4)) parts.push("Hot only");
   parts.push(`Target margin ${moneyFmt.format(state.globalMargin)}`);
   if (state.rowMargins.size) parts.push(`${state.rowMargins.size} custom`);
   if (document.getElementById("export-selected").checked) parts.push("Selected only");
@@ -1167,6 +1278,23 @@ async function loadFiles() {
   setStatus("Ready when you are.");
 }
 
+function paintPreview() {
+  const note = document.getElementById("preview-note");
+  const hotButton = document.getElementById("hot-only");
+  const names = {
+    1: "Hot Jobs strip",
+    2: "Badges",
+    3: "Glowing rows",
+    4: "Hot only filter",
+  };
+  const on = ["1", "2", "3", "4"].filter((flag) => previewOn(flag));
+  if (note) {
+    note.hidden = on.length === 0;
+    note.textContent = on.length ? `Preview ${on.join(" + ")} — ${on.map((flag) => names[flag]).join(", ")}` : "";
+  }
+  if (hotButton) hotButton.hidden = !previewOn(4);
+}
+
 function wire() {
   lockForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1267,11 +1395,41 @@ function wire() {
     state.globalMargin = DEFAULT_MARGIN;
     state.rowMargins.clear();
     state.selected.clear();
+    state.hotOnly = false;
+    const hotButton = document.getElementById("hot-only");
+    if (hotButton) {
+      hotButton.classList.remove("is-on");
+      hotButton.setAttribute("aria-pressed", "false");
+    }
     document.getElementById("target-margin").value = String(DEFAULT_MARGIN);
     document.getElementById("custom-margin").value = "";
     closePanels();
     render();
   });
+  const hotButton = document.getElementById("hot-only");
+  if (hotButton) {
+    hotButton.addEventListener("click", () => {
+      state.hotOnly = !state.hotOnly;
+      hotButton.classList.toggle("is-on", state.hotOnly);
+      hotButton.setAttribute("aria-pressed", state.hotOnly ? "true" : "false");
+      render();
+    });
+  }
+  const hotCards = document.getElementById("hot-cards");
+  if (hotCards) {
+    hotCards.addEventListener("click", (event) => {
+      const card = event.target.closest("[data-job-id]");
+      if (!card) return;
+      openJob(card.dataset.jobId);
+    });
+    hotCards.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const card = event.target.closest("[data-job-id]");
+      if (!card || event.target !== card) return;
+      event.preventDefault();
+      openJob(card.dataset.jobId);
+    });
+  }
   document.getElementById("thead").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-sort]");
     if (!btn) return;
@@ -1578,6 +1736,7 @@ function initStars() {
 clearStoredMargin();
 buildFacets();
 wire();
+paintPreview();
 initStars();
 window.addEventListener("pageshow", (event) => {
   clearStoredMargin();
