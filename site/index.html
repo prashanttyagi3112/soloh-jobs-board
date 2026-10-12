@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
-    <meta name="theme-color" content="#070b16" />
+    <meta name="theme-color" content="#07090f" />
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; object-src 'none'"
@@ -14,75 +14,50 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="nebula nebula-a" aria-hidden="true"></div>
-    <div class="nebula nebula-b" aria-hidden="true"></div>
-    <div class="nebula nebula-c" aria-hidden="true"></div>
     <canvas id="starfield" aria-hidden="true"></canvas>
 
     <div id="lock" class="lock">
       <form id="lock-form" class="lock-card" method="post" action="#">
-        <div class="orbit" aria-hidden="true">
-          <span class="ring"></span>
-          <span class="planet"></span>
-          <span class="moon"></span>
-        </div>
-        <p class="eyebrow">SoloH Partners</p>
-        <h1>Soloh Jobs Board</h1>
-        <p class="lede">
-          Internal recruiting board. The job file stays encrypted until this browser derives the key.
-        </p>
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="1" y="1" width="30" height="30" rx="8" fill="#121722" stroke="#2c3444" />
+          <circle cx="16" cy="16" r="3.5" fill="#9aa6ff" />
+          <circle cx="16" cy="7.5" r="1.1" fill="#c5cad6" />
+          <circle cx="24.5" cy="19" r="1" fill="#7dcec4" />
+          <circle cx="9" cy="22" r="1" fill="#c5cad6" />
+        </svg>
+        <p class="eyebrow">Soloh</p>
+        <h1>Jobs Board</h1>
+        <p class="lede">Internal recruiting board. The job file stays encrypted in this browser.</p>
         <p class="date-lock">Data date <time id="lock-date">loading…</time></p>
         <p id="lock-updated" class="updated-badge">Jobs last updated: …</p>
-        <p class="refresh-note">Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET</p>
+        <p class="refresh-note">Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET · Sat and Sun at 9 AM ET</p>
         <label class="field" for="password">Password</label>
         <input id="password" name="password" type="password" autocomplete="current-password" spellcheck="false" required />
-        <button id="launch" class="btn launch" type="submit" disabled>Launch</button>
-        <p id="lock-status" class="lock-status" role="status">Loading the vault…</p>
+        <button id="launch" class="btn primary" type="submit" disabled>Unlock</button>
+        <p id="lock-status" class="lock-status" role="status">Loading…</p>
       </form>
     </div>
 
     <main id="board" class="board" hidden>
       <header class="top">
         <div class="brand">
-          <div class="orbit orbit-sm" aria-hidden="true">
-            <span class="ring"></span>
-            <span class="planet"></span>
-          </div>
-          <div>
-            <p class="eyebrow">SoloH Partners</p>
+          <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+            <rect x="1" y="1" width="30" height="30" rx="8" fill="#121722" stroke="#2c3444" />
+            <circle cx="16" cy="16" r="3.5" fill="#9aa6ff" />
+            <circle cx="16" cy="7.5" r="1.1" fill="#c5cad6" />
+            <circle cx="24.5" cy="19" r="1" fill="#7dcec4" />
+            <circle cx="9" cy="22" r="1" fill="#c5cad6" />
+          </svg>
+          <div class="brand-copy">
             <h1 id="board-title" tabindex="-1">Soloh Jobs Board</h1>
+            <p id="updated-badge" class="updated-badge">Jobs last updated: …</p>
           </div>
         </div>
         <div class="top-meta">
-          <p class="date">Data date <time id="data-date"></time></p>
           <p id="drop-totals" class="drop-totals"></p>
           <button id="lock-btn" class="btn ghost" type="button">Lock</button>
         </div>
       </header>
-
-      <div class="freshness">
-        <p id="updated-badge" class="updated-badge">Jobs last updated: …</p>
-        <p class="refresh-note">Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET</p>
-      </div>
-
-      <section id="margin-panel" class="margin-panel" aria-label="Target margin">
-        <div class="margin-field">
-          <label for="target-margin">Target margin</label>
-          <input id="target-margin" type="number" min="1" step="1" value="4000" inputmode="decimal" />
-        </div>
-        <div class="margin-presets" role="group" aria-label="Margin presets">
-          <button class="btn ghost margin-preset" type="button" data-margin="3000">$3,000</button>
-          <button class="btn ghost margin-preset" type="button" data-margin="3500">$3,500</button>
-          <button class="btn ghost margin-preset is-on" type="button" data-margin="4000">$4,000</button>
-        </div>
-        <div class="margin-field">
-          <label for="custom-margin">Custom margin for selected</label>
-          <input id="custom-margin" type="number" min="1" step="1" inputmode="decimal" />
-        </div>
-        <button id="apply-margin" class="btn ghost" type="button">Apply to selected</button>
-        <button id="clear-margin" class="btn ghost" type="button">Clear custom</button>
-        <p id="selected-count" class="selected-count">0 selected</p>
-      </section>
 
       <section class="stats" aria-label="Matching jobs">
         <article class="stat">
@@ -94,25 +69,45 @@
           <p id="opening-count" class="stat-value">0</p>
         </article>
         <article class="stat">
-          <p class="stat-label">Status filter</p>
+          <p class="stat-label">Status</p>
           <p id="view-label" class="stat-value stat-text">Open</p>
         </article>
+        <div class="source-row">
+          <p class="source-label">Sources</p>
+          <ul id="source-counts" class="sources"></ul>
+        </div>
       </section>
 
-      <div class="source-row">
-        <p class="source-label">Sources in this view</p>
-        <ul id="source-counts" class="sources"></ul>
-      </div>
-
-      <section class="controls">
-        <div id="facets" class="facets"></div>
-        <div class="search-row">
-          <label class="search">
-            <span class="visually-hidden">Search jobs</span>
-            <input id="search" type="search" placeholder="Search facility, title, city, job id…" autocomplete="off" />
+      <section class="toolbar" aria-label="Filters and tools">
+        <div class="filter-bar">
+          <label class="field search-field">
+            <span>Search</span>
+            <input id="search" type="search" placeholder="Facility, title, city, job id" autocomplete="off" />
           </label>
+          <div id="facets" class="facets"></div>
+          <button id="more-filters" class="btn ghost" type="button" aria-expanded="false">More filters</button>
         </div>
         <div id="chips" class="chips"></div>
+
+        <section id="margin-panel" class="margin-panel" aria-label="Target margin">
+          <div class="margin-field">
+            <label for="target-margin">Target margin</label>
+            <input id="target-margin" type="number" min="1" step="1" value="4000" inputmode="decimal" />
+          </div>
+          <div class="margin-presets" role="group" aria-label="Margin presets">
+            <button class="margin-preset" type="button" data-margin="3000">$3,000</button>
+            <button class="margin-preset" type="button" data-margin="3500">$3,500</button>
+            <button class="margin-preset is-on" type="button" data-margin="4000">$4,000</button>
+          </div>
+          <div class="margin-field">
+            <label for="custom-margin">Custom for selected</label>
+            <input id="custom-margin" type="number" min="1" step="1" inputmode="decimal" />
+          </div>
+          <button id="apply-margin" class="btn secondary" type="button">Apply</button>
+          <button id="clear-margin" class="btn ghost" type="button">Clear custom</button>
+          <p id="selected-count" class="selected-count">0 selected</p>
+        </section>
+
         <div class="actions">
           <label class="toggle">
             <input id="show-all" type="checkbox" />
@@ -122,25 +117,34 @@
             <input id="export-selected" type="checkbox" />
             <span>Selected only</span>
           </label>
-          <button id="export-xlsx" class="btn primary" type="button">Export Excel</button>
-          <button id="export-pdf" class="btn primary" type="button">Export PDF</button>
-          <button id="export-report" class="btn ghost" type="button">Chief of Jobs report</button>
-          <button id="reset" class="btn ghost" type="button">Reset filters</button>
-          <button id="mapping" class="btn ghost" type="button">Discipline mapping</button>
+          <div class="col-menu">
+            <button id="columns-btn" class="btn ghost" type="button" aria-expanded="false" aria-controls="columns-panel">Columns</button>
+            <div id="columns-panel" class="menu-panel" hidden></div>
+          </div>
+          <button id="density" class="btn ghost" type="button" aria-pressed="false">Compact</button>
+          <button id="export-xlsx" class="btn primary" type="button">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M5 7l3 3 3-3M3 13h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Excel
+          </button>
+          <button id="export-pdf" class="btn secondary" type="button">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5L12 5.5V13.5H4zM9 2.5V6h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            PDF
+          </button>
+          <button id="reset" class="btn ghost" type="button">Reset</button>
         </div>
         <p id="result-line" class="result-line" aria-live="polite"></p>
         <p id="notice" class="notice" role="status"></p>
       </section>
 
       <div class="sort-mobile">
-        <label>
-          Sort
+        <label class="field">
+          <span>Sort</span>
           <select id="sort-key"></select>
         </label>
         <button id="sort-dir" class="btn ghost" type="button">Ascending</button>
         <button id="expand-all" class="btn ghost" type="button">Expand cards</button>
       </div>
-      <p class="scroll-hint">Click a row, or focus it and press Enter or Space, for every field. Use the checkbox to select jobs. Scroll sideways for rates, margins, and ids.</p>
+      <p class="scroll-hint">Click a row, or focus it and press Enter or Space, for every field. Use the checkbox to select jobs.</p>
 
       <div id="results" class="results">
         <div id="table-wrap" class="table-scroll">
@@ -150,8 +154,16 @@
           </table>
         </div>
         <div id="cards" class="cards"></div>
-        <p id="empty" class="empty" hidden>No jobs match these filters.</p>
+        <p id="empty" class="empty" hidden>
+          <strong>No jobs match</strong>
+          <span>Clear a filter, or reset to see the open jobs again.</span>
+        </p>
       </div>
+
+      <footer class="site-footer">
+        <p>Internal use · Data date <time id="data-date"></time></p>
+        <p class="refresh-note">Refreshes Mon to Fri at 8 AM, 12 PM, 2 PM, 4 PM, 8 PM ET · Sat and Sun at 9 AM ET</p>
+      </footer>
     </main>
 
     <dialog id="job-dialog" class="job-dialog" aria-labelledby="job-dialog-title">
