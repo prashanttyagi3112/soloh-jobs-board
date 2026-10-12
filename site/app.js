@@ -44,6 +44,7 @@ const CARD_PRIMARY = [
 const moneyFmt = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const numFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const DEFAULT_MARGIN = 4000;
+const MARGIN_DEBOUNCE_MS = 400;
 
 const state = {
   jobs: [],
@@ -436,6 +437,12 @@ function renderJobDialog(row) {
 }
 
 let detailReturnFocus = null;
+let marginTimer = 0;
+
+function countLabel(count, singular, plural) {
+  const noun = count === 1 ? singular : plural;
+  return `${Number(count).toLocaleString()} ${noun}`;
+}
 
 function openJob(id) {
   const row = findJob(id);
@@ -508,7 +515,22 @@ function clearStoredMargin() {
   }
 }
 
+function cancelMarginRender() {
+  window.clearTimeout(marginTimer);
+  marginTimer = 0;
+}
+
+function scheduleMarginRender() {
+  cancelMarginRender();
+  marginTimer = window.setTimeout(() => {
+    marginTimer = 0;
+    render();
+  }, MARGIN_DEBOUNCE_MS);
+}
+
 function applyTargetMargin(raw) {
+  const pending = marginTimer !== 0;
+  cancelMarginRender();
   const parsed = positiveMargin(raw);
   const value = parsed == null ? DEFAULT_MARGIN : parsed;
   const input = document.getElementById("target-margin");
@@ -516,7 +538,7 @@ function applyTargetMargin(raw) {
   state.globalMargin = value;
   input.value = String(value);
   paintMarginPresets();
-  if (changed) render();
+  if (changed || pending) render();
 }
 
 function syncMarginControls() {
@@ -780,7 +802,7 @@ function renderDropTotals() {
   const open = state.jobs.filter((row) => row.Status === "Open").length;
   const mix = sourceNames(counts).map((name) => `${name} ${counts.get(name)}`).join(" · ");
   document.getElementById("drop-totals").textContent =
-    `This drop: ${state.jobs.length.toLocaleString()} jobs, ${open.toLocaleString()} open · ${mix}`;
+    `This drop: ${countLabel(state.jobs.length, "job", "jobs")}, ${open.toLocaleString()} open · ${mix}`;
   const disc = new Map();
   for (const row of state.jobs) disc.set(row.Discipline, (disc.get(row.Discipline) || 0) + 1);
   document.getElementById("disc-counts").textContent =
@@ -828,6 +850,7 @@ function renderTable(rows) {
   for (const row of rows) {
     const tr = document.createElement("tr");
     tr.dataset.jobId = row.__id;
+    tr.tabIndex = 0;
     tr.classList.toggle("is-selected", state.selected.has(row.__id));
     tr.classList.toggle("has-custom", state.rowMargins.has(row.__id));
     const selectTd = document.createElement("td");
@@ -922,7 +945,7 @@ function render() {
   animateCount(document.getElementById("opening-count"), openingCount(rows));
   document.getElementById("view-label").textContent = state.showAll ? "All" : "Open";
   document.getElementById("result-line").textContent =
-    `${rows.length.toLocaleString()} matching jobs · ${openingCount(rows).toLocaleString()} openings`;
+    `${countLabel(rows.length, "matching job", "matching jobs")} · ${countLabel(openingCount(rows), "opening", "openings")}`;
   renderSources(rows);
   updateFacets();
   renderTable(rows);
@@ -974,6 +997,16 @@ function exportExcel() {
   const sheet = data.length
     ? XLSX.utils.json_to_sheet(data, { header: columns })
     : XLSX.utils.aoa_to_sheet([columns]);
+  const mspIndex = columns.indexOf("MSP %");
+  if (mspIndex >= 0) {
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      const addr = XLSX.utils.encode_cell({ r: rowIndex + 1, c: mspIndex });
+      const cell = sheet[addr];
+      if (!cell || cell.t !== "n" || !Number.isFinite(cell.v)) continue;
+      if (Math.abs(cell.v) > 1) cell.v /= 100;
+      cell.z = "0.##%";
+    }
+  }
   sheet["!cols"] = columns.map((col) => ({ wch: Math.min(42, Math.max(12, col.length + 2)) }));
   const book = XLSX.utils.book_new();
   book.Props = { Title: "Soloh Jobs Board", Subject: `Filtered export ${state.dataDate}` };
@@ -1015,7 +1048,7 @@ function exportPdf() {
       doc.rect(0, 0, width, 22, "F");
       doc.setFontSize(9);
       doc.setTextColor(244, 247, 251);
-      doc.text(`Soloh Jobs Board  ·  ${state.dataDate}  ·  ${rows.length} jobs  ·  ${filterSummary()}`, 16, 14);
+      doc.text(`Soloh Jobs Board  ·  ${state.dataDate}  ·  ${countLabel(rows.length, "job", "jobs")}  ·  ${filterSummary()}`, 16, 14);
       doc.setFontSize(8);
       doc.setTextColor(80, 90, 120);
       doc.text(String(doc.internal.getCurrentPageInfo().pageNumber), width - 28, height - 10);
@@ -1047,7 +1080,7 @@ async function withBusy(button, label, fn) {
   try {
     fn();
     notify(count
-      ? `Exported ${count.toLocaleString()} jobs${selectedOnly ? " (selected only)" : ""}.`
+      ? `Exported ${countLabel(count, "job", "jobs")}${selectedOnly ? " (selected only)" : ""}.`
       : "No selected jobs in this view to export.");
   } catch (err) {
     notify("The export didn't finish. Try again.");
@@ -1233,6 +1266,7 @@ function wire() {
     for (const input of document.querySelectorAll(".ms-search")) input.value = "";
     state.globalMargin = DEFAULT_MARGIN;
     state.rowMargins.clear();
+    state.selected.clear();
     document.getElementById("target-margin").value = String(DEFAULT_MARGIN);
     document.getElementById("custom-margin").value = "";
     closePanels();
@@ -1289,10 +1323,13 @@ function wire() {
   const targetMargin = document.getElementById("target-margin");
   targetMargin.addEventListener("input", () => {
     const value = positiveMargin(targetMargin.value);
-    if (value == null) return;
+    if (value == null) {
+      cancelMarginRender();
+      return;
+    }
     state.globalMargin = value;
     paintMarginPresets();
-    render();
+    scheduleMarginRender();
   });
   targetMargin.addEventListener("blur", () => {
     applyTargetMargin(targetMargin.value);
@@ -1305,16 +1342,18 @@ function wire() {
   document.querySelector(".margin-presets").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-margin]");
     if (!btn) return;
+    cancelMarginRender();
     state.globalMargin = Number(btn.dataset.margin);
     document.getElementById("target-margin").value = String(state.globalMargin);
     paintMarginPresets();
     window.setTimeout(() => render(), 0);
   });
-  document.getElementById("apply-margin").addEventListener("click", () => {
-    const raw = document.getElementById("custom-margin").value.trim();
-    const value = Number(raw);
-    if (raw === "" || !Number.isFinite(value)) {
-      notify("Enter a custom margin first.");
+  function applyCustomMargin() {
+    const input = document.getElementById("custom-margin");
+    const value = positiveMargin(input.value);
+    if (value == null) {
+      input.value = "";
+      notify("Enter a custom margin greater than zero. Nothing was applied.");
       return;
     }
     if (!state.selected.size) {
@@ -1322,8 +1361,14 @@ function wire() {
       return;
     }
     for (const id of state.selected) state.rowMargins.set(id, value);
-    notify(`Custom margin ${moneyFmt.format(value)} applied to ${state.selected.size.toLocaleString()} jobs.`);
+    notify(`Custom margin ${moneyFmt.format(value)} applied to ${countLabel(state.selected.size, "job", "jobs")}.`);
     render();
+  }
+  document.getElementById("apply-margin").addEventListener("click", applyCustomMargin);
+  document.getElementById("custom-margin").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyCustomMargin();
   });
   document.getElementById("clear-margin").addEventListener("click", () => {
     if (state.selected.size) {
@@ -1357,6 +1402,14 @@ function wire() {
     const host = event.target.closest("tr[data-job-id], article[data-job-id]");
     if (!host) return;
     if (event.target.closest("button, a, input, select, textarea, label")) return;
+    openJob(host.dataset.jobId);
+  });
+  document.getElementById("results").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (event.target.closest("input, button, a, select, textarea, label")) return;
+    const host = event.target.closest("tr[data-job-id]");
+    if (!host) return;
+    event.preventDefault();
     openJob(host.dataset.jobId);
   });
   const jobDialog = document.getElementById("job-dialog");
